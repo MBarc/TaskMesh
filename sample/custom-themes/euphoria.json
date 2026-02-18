@@ -1,0 +1,24 @@
+{
+  "name": "Euphoria",
+  "isDark": true,
+  "colors": {
+    "primary-50": "#1a0533",
+    "primary-100": "#2d0a52",
+    "primary-200": "#4a1080",
+    "primary-300": "#6d1db3",
+    "primary-400": "#9333ea",
+    "primary-500": "#b366f7",
+    "primary-600": "#c98afb",
+    "primary-700": "#dbb0fd",
+    "primary-800": "#ead3fe",
+    "primary-900": "#f5edff",
+    "surface": "#0d0118",
+    "surface-secondary": "#160428",
+    "surface-tertiary": "#220a3d",
+    "border": "#3a1260",
+    "border-secondary": "#4f1b80",
+    "text-primary": "#f5edff",
+    "text-secondary": "#dbb0fd",
+    "text-muted": "#9333ea"
+  }
+}

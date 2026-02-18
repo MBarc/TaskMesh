@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: todoapp-postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - todoapp-network
+
+  ollama:
+    image: mbarc98/taskmesh-ollama:latest
+    container_name: todoapp-ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    networks:
+      - todoapp-network
+
+  ai-service:
+    image: mbarc98/taskmesh-ai-service:latest
+    container_name: todoapp-ai-service
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    volumes:
+      - uploads:/app/uploads
+    environment:
+      - OLLAMA_HOST=${OLLAMA_HOST}
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - WHISPER_MODEL=${WHISPER_MODEL}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - todoapp-network
+
+  server:
+    image: mbarc98/taskmesh-server:latest
+    container_name: todoapp-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - AI_SERVICE_URL=${AI_SERVICE_URL}
+      - PORT=${PORT}
+      - DOCUMENTATION_PATH=${DOCUMENTATION_PATH}
+    volumes:
+      - uploads:/app/uploads
+      - ${DOCUMENTATION_PATH:-./documentation}:/documentation
+      - ./sample-documentation:/sample-documentation
+    ports:
+      - "4000:4000"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - todoapp-network
+
+  client:
+    image: mbarc98/taskmesh-client:latest
+    container_name: todoapp-client
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "3000:80"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    networks:
+      - todoapp-network
+
+volumes:
+  postgres_data:
+  uploads:
+
+networks:
+  todoapp-network:
+    driver: bridge

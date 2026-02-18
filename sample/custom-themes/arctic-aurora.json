@@ -1,0 +1,24 @@
+{
+  "name": "Arctic Aurora",
+  "isDark": true,
+  "colors": {
+    "primary-50": "#061215",
+    "primary-100": "#0a1e24",
+    "primary-200": "#0e3d3f",
+    "primary-300": "#126e60",
+    "primary-400": "#18b892",
+    "primary-500": "#00ffd5",
+    "primary-600": "#33ffdd",
+    "primary-700": "#66ffe6",
+    "primary-800": "#99ffee",
+    "primary-900": "#ccfff7",
+    "surface": "#040c10",
+    "surface-secondary": "#081418",
+    "surface-tertiary": "#0e1e22",
+    "border": "#163a38",
+    "border-secondary": "#1e5450",
+    "text-primary": "#00ffd5",
+    "text-secondary": "#c0fff0",
+    "text-muted": "#3aab90"
+  }
+}

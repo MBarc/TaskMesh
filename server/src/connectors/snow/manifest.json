@@ -1,0 +1,71 @@
+{
+  "id": "snow",
+  "name": "ServiceNow",
+  "description": "Sync incidents with ServiceNow",
+  "version": "1.0.0",
+  "icon": "Snowflake",
+  "category": "ITSM",
+  "brandColor": "#81b532",
+
+  "capabilities": [
+    "settings",
+    "test-connection",
+    "search",
+    "import",
+    "push",
+    "ai-fields"
+  ],
+
+  "columns": [
+    { "type": "ITEM_NO", "name": "Item No.", "requiredFor": ["import", "push"] },
+    { "type": "SOURCE", "name": "Source", "requiredFor": ["import"] }
+  ],
+
+  "settings": {
+    "singleton": true,
+    "fields": [
+      {
+        "key": "instanceUrl",
+        "label": "Instance URL",
+        "type": "url",
+        "required": true,
+        "placeholder": "https://mycompany.service-now.com",
+        "normalize": "stripTrailingSlash"
+      },
+      {
+        "key": "apiKey",
+        "label": "API Key",
+        "type": "password",
+        "required": true,
+        "secret": true
+      },
+      {
+        "key": "assignedTo",
+        "label": "Assigned To",
+        "type": "text",
+        "required": false,
+        "placeholder": "e.g. user@example.com"
+      }
+    ],
+    "customFields": []
+  },
+
+  "import": {
+    "label": "Import from ServiceNow",
+    "searchPlaceholder": "Filter by description or incident number...",
+    "itemLabel": "incident",
+    "itemLabelPlural": "incidents",
+    "emptyMessage": "No open incidents found",
+    "loadingMessage": "Loading open incidents...",
+    "customComponent": "SnowImportModal"
+  },
+
+  "push": {
+    "label": "New Incident",
+    "customComponent": "SnowPushModal"
+  },
+
+  "aiFields": {
+    "endpoint": "/generate-field"
+  }
+}

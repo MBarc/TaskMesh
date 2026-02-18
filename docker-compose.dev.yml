@@ -1,0 +1,29 @@
+# Development overrides - use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./server/src:/app/src
+      - ./server/prisma:/app/prisma
+    command: npm run dev
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./client/src:/app/src
+    ports:
+      - "5173:5173"
+    command: npm run dev
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  ai-service:
+    volumes:
+      - ./ai-service:/app
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload

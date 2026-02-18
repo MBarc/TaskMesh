@@ -1,0 +1,24 @@
+{
+  "name": "Kawaii",
+  "isDark": false,
+  "colors": {
+    "primary-50": "#fef1fa",
+    "primary-100": "#fee5f6",
+    "primary-200": "#ffcbee",
+    "primary-300": "#ffa1df",
+    "primary-400": "#ff6dc7",
+    "primary-500": "#f93cae",
+    "primary-600": "#e91a8d",
+    "primary-700": "#cb0c70",
+    "primary-800": "#a80d5c",
+    "primary-900": "#8c1050",
+    "surface": "#fffafd",
+    "surface-secondary": "#fef1fa",
+    "surface-tertiary": "#fee5f6",
+    "border": "#ffcbee",
+    "border-secondary": "#ffa1df",
+    "text-primary": "#5e0838",
+    "text-secondary": "#a80d5c",
+    "text-muted": "#e96da5"
+  }
+}

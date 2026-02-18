@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Board {
+  id        String   @id @default(uuid())
+  name      String
+  columns   Column[]
+  tasks     Task[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Column {
+  id         String         @id @default(uuid())
+  boardId    String
+  board      Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name       String
+  type       ColumnType
+  order                  Int
+  requiredForCompletion  Boolean        @default(false)
+  options                ColumnOption[]
+  cellValues             CellValue[]
+  createdAt              DateTime       @default(now())
+
+  @@index([boardId])
+}
+
+enum ColumnType {
+  TEXT
+  DROPDOWN
+  MULTI_SELECT
+  DATE
+  CHECKBOX
+  NUMBER
+  SOURCE
+  ADO_PUSH
+  ITEM_NO
+  SNOW_PUSH
+  EMAIL
+  DOCUMENTATION
+}
+
+model ColumnOption {
+  id       String  @id @default(uuid())
+  columnId String
+  column   Column  @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  value    String
+  color    String?
+  order    Int
+
+  @@index([columnId])
+}
+
+model Task {
+  id         String      @id @default(uuid())
+  boardId    String
+  board      Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  order      Int
+  cellValues CellValue[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([boardId])
+}
+
+model CellValue {
+  id       String @id @default(uuid())
+  taskId   String
+  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  columnId String
+  column   Column @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  value    String
+
+  @@unique([taskId, columnId])
+  @@index([taskId])
+  @@index([columnId])
+}
+
+model EmailSettings {
+  id              String   @id           // 'outlook' | 'gmail'
+  provider        String                 // 'outlook' | 'gmail'
+  displayName     String
+  emailAddress    String
+  imapHost        String
+  imapPort        Int
+  smtpHost        String
+  smtpPort        Int
+  username        String
+  password        String
+  pollingInterval Int      @default(60)
+  active          Boolean  @default(false)
+  replyTemplate   String?
+  signature       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model EmailMessage {
+  id              String   @id @default(uuid())
+  messageId       String   @unique
+  threadId        String
+  from            String
+  to              String
+  cc              String?
+  subject         String
+  bodyText        String
+  bodyHtml        String?
+  receivedAt      DateTime
+  classification  String?              // 'task' | 'question' | 'ignore' | null (analyzing)
+  taskTitle       String?              // AI-suggested title
+  imported        Boolean  @default(false)
+  boardId         String?
+  provider        String               // 'outlook' | 'gmail'
+  createdAt       DateTime @default(now())
+
+  @@index([threadId])
+  @@index([boardId])
+  @@index([classification])
+}
+
+model AIExtraction {
+  id             String   @id @default(uuid())
+  boardId        String
+  sourceType     String
+  sourceText     String
+  extractedTasks Json
+  status         String   @default("pending_review")
+  createdAt      DateTime @default(now())
+
+  @@index([boardId])
+}
+
+model ApiKey {
+  id        String       @id @default(uuid())
+  name      String
+  key       String       @unique
+  status    ApiKeyStatus @default(ACTIVE)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  usageLog  ApiKeyUsage[]
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+model DocumentationSettings {
+  id              String   @id @default("singleton")
+  subfolder       String   @default("")
+  templates       Json?
+  customVariables Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model DocumentDraft {
+  id         String   @id @default(uuid())
+  taskId     String
+  boardId    String
+  fileName   String
+  content    String
+  templateId String?
+  status     String   @default("draft")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([taskId, boardId])
+  @@index([taskId])
+  @@index([boardId])
+}
+
+model ApiKeyUsage {
+  id         String   @id @default(uuid())
+  apiKeyId   String
+  apiKey     ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  method     String
+  path       String
+  statusCode Int
+  timestamp  DateTime @default(now())
+
+  @@index([apiKeyId])
+  @@index([timestamp])
+}
+
+model ConnectorConfig {
+  id          String   @id              // "ado" | "snow" | "email_outlook" | "email_gmail" | "documentation"
+  connectorId String                    // "ado" | "snow" | "email" | "documentation"
+  instanceId  String?                   // null for singletons, "outlook"/"gmail" for email
+  config      Json                      // all settings as JSON blob
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([connectorId])
+}
+
+model AppSettings {
+  id                   String   @id @default("singleton")
+  archiveEnabled       Boolean  @default(false)
+  archiveRetentionDays Int      @default(30)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model ArchivedTask {
+  id                String   @id @default(uuid())
+  originalTaskId    String
+  originalBoardId   String
+  originalBoardName String
+  snapshot          Json
+  archivedAt        DateTime @default(now())
+
+  @@index([originalBoardId])
+  @@index([archivedAt])
+}

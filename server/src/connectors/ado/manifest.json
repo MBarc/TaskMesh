@@ -1,0 +1,83 @@
+{
+  "id": "ado",
+  "name": "Azure DevOps",
+  "description": "Sync work items with Azure DevOps",
+  "version": "1.0.0",
+  "icon": "GitBranch",
+  "category": "ITSM",
+  "brandColor": "#0078d4",
+
+  "capabilities": [
+    "settings",
+    "test-connection",
+    "search",
+    "import",
+    "push",
+    "ai-fields"
+  ],
+
+  "columns": [
+    { "type": "ADO_PUSH", "name": "Azure DevOps", "requiredFor": ["import", "push"] },
+    { "type": "ITEM_NO", "name": "Item No.", "requiredFor": ["import", "push"] },
+    { "type": "SOURCE", "name": "Source", "requiredFor": ["import"] }
+  ],
+
+  "settings": {
+    "singleton": true,
+    "fields": [
+      {
+        "key": "organizationUrl",
+        "label": "Organization URL",
+        "type": "url",
+        "required": true,
+        "placeholder": "https://dev.azure.com/your-org",
+        "normalize": "stripTrailingSlash"
+      },
+      {
+        "key": "projectName",
+        "label": "Project Name",
+        "type": "text",
+        "required": true,
+        "placeholder": "MyProject"
+      },
+      {
+        "key": "pat",
+        "label": "Personal Access Token (PAT)",
+        "type": "password",
+        "required": true,
+        "secret": true
+      },
+      {
+        "key": "assignedTo",
+        "label": "Assign To",
+        "type": "text",
+        "required": false,
+        "placeholder": "e.g. user@example.com"
+      }
+    ],
+    "customFields": [
+      { "key": "templates", "type": "json", "label": "Work Item Templates" },
+      { "key": "metadataTemplates", "type": "json", "label": "Metadata Templates" }
+    ],
+    "customSettingsComponent": "ConnectorSettings"
+  },
+
+  "import": {
+    "label": "Import from ADO",
+    "searchPlaceholder": "Filter by work item title...",
+    "itemLabel": "work item",
+    "itemLabelPlural": "work items",
+    "emptyMessage": "No assigned work items found",
+    "loadingMessage": "Loading assigned work items...",
+    "customComponent": "AdoImportModal"
+  },
+
+  "push": {
+    "label": "New Work Item",
+    "customComponent": "AdoPushModal"
+  },
+
+  "aiFields": {
+    "endpoint": "/generate-field"
+  }
+}

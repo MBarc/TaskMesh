@@ -1,0 +1,41 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Meeting notes
+meeting-notes/*
+!meeting-notes/.gitkeep
+
+# Claude Code
+.claude/settings.local.json
+
+# Windows artifacts
+nul
+
+# To-Do List
+todo.txt

@@ -1,0 +1,42 @@
+{
+  "id": "email",
+  "name": "Email",
+  "description": "Import tasks from email inbox",
+  "version": "1.0.0",
+  "icon": "Mail",
+  "category": "Email",
+  "brandColor": "#0078d4",
+
+  "capabilities": [
+    "test-connection"
+  ],
+
+  "multiInstance": true,
+  "instanceKey": "provider",
+  "instances": ["outlook", "gmail"],
+  "instanceMeta": {
+    "outlook": { "name": "Outlook (Office 365)", "icon": "Inbox", "brandColor": "#0078d4" },
+    "gmail": { "name": "Gmail", "icon": "Mail", "brandColor": "#ea4335" }
+  },
+  "exclusiveActive": true,
+
+  "columns": [
+    { "type": "EMAIL", "name": "Email", "requiredFor": ["import"] },
+    { "type": "SOURCE", "name": "Source", "requiredFor": ["import"] }
+  ],
+
+  "settings": {
+    "singleton": false,
+    "fields": [],
+    "customFields": [],
+    "instanceSettingsComponents": {
+      "outlook": "OutlookConnectorSettings",
+      "gmail": "GmailConnectorSettings"
+    }
+  },
+
+  "import": {
+    "label": "Import from Email",
+    "customComponent": "EmailImportModal"
+  }
+}

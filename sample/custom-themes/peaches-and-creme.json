@@ -1,0 +1,24 @@
+{
+  "name": "Peaches and Creme",
+  "isDark": false,
+  "colors": {
+    "primary-50": "#fff8f1",
+    "primary-100": "#ffefde",
+    "primary-200": "#ffdcbc",
+    "primary-300": "#ffc28a",
+    "primary-400": "#ffa057",
+    "primary-500": "#ff7f2a",
+    "primary-600": "#f06516",
+    "primary-700": "#c74e0f",
+    "primary-800": "#9e3f13",
+    "primary-900": "#803714",
+    "surface": "#fffdf9",
+    "surface-secondary": "#fff8f1",
+    "surface-tertiary": "#ffefde",
+    "border": "#ffdcbc",
+    "border-secondary": "#ffc28a",
+    "text-primary": "#5c2508",
+    "text-secondary": "#9e3f13",
+    "text-muted": "#d4845a"
+  }
+}

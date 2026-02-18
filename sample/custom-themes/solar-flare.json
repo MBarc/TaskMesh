@@ -1,0 +1,24 @@
+{
+  "name": "Solar Flare",
+  "isDark": true,
+  "colors": {
+    "primary-50": "#1a0e05",
+    "primary-100": "#2e1508",
+    "primary-200": "#5c2a0c",
+    "primary-300": "#a24510",
+    "primary-400": "#e06018",
+    "primary-500": "#ff7a1a",
+    "primary-600": "#ff9a4d",
+    "primary-700": "#ffb980",
+    "primary-800": "#ffd4a8",
+    "primary-900": "#ffedd5",
+    "surface": "#0d0805",
+    "surface-secondary": "#16100a",
+    "surface-tertiary": "#201810",
+    "border": "#3d2a18",
+    "border-secondary": "#5c3e24",
+    "text-primary": "#fff1e0",
+    "text-secondary": "#ffcc8a",
+    "text-muted": "#c47a30"
+  }
+}
