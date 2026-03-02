@@ -1,9 +1,30 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { ConnectorManifest, ConnectorHandlers, ConnectorContext } from './types.js';
 import { getSettings, saveSettings, getRawSettings, SettingsValidationError } from './settingsManager.js';
 import { ensureColumn } from './columnManager.js';
 import { generateFieldFromTask } from './aiFieldGenerator.js';
+import {
+  generateNonce,
+  validateAndConsumeNonce,
+  buildAuthorizationUrl,
+  exchangeCodeForTokens,
+  storeOAuthTokens,
+  clearOAuthTokens,
+  getOAuthStatus,
+  getValidAccessToken,
+} from './oauthManager.js';
+
+/**
+ * Build the OAuth redirect URI from a request.
+ * Uses x-forwarded-proto/host headers if present (reverse proxy support).
+ * instanceId is NOT included — it round-trips through the state nonce.
+ */
+function buildRedirectUri(req: Request, connectorId: string): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
+  return `${proto}://${host}/api/${connectorId}/auth/callback`;
+}
 
 /**
  * Create a ConnectorContext for a given manifest + prisma client.
@@ -21,6 +42,7 @@ export function createConnectorContext(
       const name = colDef?.name || columnType;
       return ensureColumn(prisma, boardId, columnType, name);
     },
+    getOAuthToken: (instanceId?: string) => getValidAccessToken(prisma, manifest, instanceId),
   };
 }
 
@@ -44,7 +66,7 @@ export function buildConnectorRouter(
       router.get('/settings/:instanceId', async (req, res) => {
         try {
           const { instanceId } = req.params;
-          if (manifest.instances && !manifest.instances.includes(instanceId)) {
+          if (manifest.instances && manifest.instances.length > 0 && !manifest.instances.includes(instanceId)) {
             return res.status(400).json({ error: `Invalid instance: ${instanceId}` });
           }
           const result = await getSettings(prisma, manifest, instanceId);
@@ -154,6 +176,102 @@ export function buildConnectorRouter(
       } catch (error: any) {
         console.error(`Error pushing to ${manifest.name}:`, error);
         res.status(500).json({ error: `Push failed: ${error.message}` });
+      }
+    });
+  }
+
+  // ── OAuth ──
+  if (caps.has('oauth') && manifest.oauth) {
+    const oauthConfig = manifest.oauth;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // GET /auth/start — redirect user to provider authorization page
+    router.get('/auth/start', async (req, res) => {
+      try {
+        const instanceId = manifest.multiInstance
+          ? (req.query.instanceId as string | undefined)
+          : undefined;
+
+        const settings = await getRawSettings(prisma, manifest, instanceId);
+        if (!settings?.clientId || !settings?.clientSecret) {
+          return res.status(400).json({ error: 'clientId and clientSecret must be configured before starting OAuth' });
+        }
+
+        const state = generateNonce(manifest.id, instanceId);
+        const redirectUri = buildRedirectUri(req, manifest.id);
+        const authUrl = buildAuthorizationUrl(oauthConfig, settings.clientId, state, redirectUri);
+        res.redirect(authUrl);
+      } catch (error: any) {
+        console.error(`OAuth start error for ${manifest.name}:`, error);
+        res.status(500).json({ error: `Failed to start OAuth: ${error.message}` });
+      }
+    });
+
+    // GET /auth/callback — handle provider redirect with authorization code
+    router.get('/auth/callback', async (req, res) => {
+      const { code, state, error: oauthError } = req.query as Record<string, string>;
+
+      if (oauthError) {
+        return res.redirect(`${frontendUrl}/settings?connector=${manifest.id}&oauth=error&reason=${encodeURIComponent(oauthError)}`);
+      }
+
+      if (!code || !state) {
+        return res.redirect(`${frontendUrl}/settings?connector=${manifest.id}&oauth=error&reason=missing_code_or_state`);
+      }
+
+      try {
+        const nonceEntry = validateAndConsumeNonce(state);
+        if (!nonceEntry) {
+          return res.redirect(`${frontendUrl}/settings?connector=${manifest.id}&oauth=error&reason=invalid_or_expired_state`);
+        }
+
+        const { connectorId, instanceId } = nonceEntry;
+        const settings = await getRawSettings(prisma, manifest, instanceId);
+        if (!settings?.clientId || !settings?.clientSecret) {
+          return res.redirect(`${frontendUrl}/settings?connector=${connectorId}&oauth=error&reason=missing_credentials`);
+        }
+
+        const redirectUri = buildRedirectUri(req, connectorId);
+        const tokens = await exchangeCodeForTokens(oauthConfig, settings.clientId, settings.clientSecret, code, redirectUri);
+        await storeOAuthTokens(prisma, connectorId, tokens, instanceId);
+
+        if (handlers.onOAuthSuccess) {
+          await handlers.onOAuthSuccess(ctx, tokens, instanceId);
+        }
+
+        const instanceParam = instanceId ? `&instance=${encodeURIComponent(instanceId)}` : '';
+        res.redirect(`${frontendUrl}/settings?connector=${connectorId}${instanceParam}&oauth=success`);
+      } catch (error: any) {
+        console.error(`OAuth callback error for ${manifest.name}:`, error);
+        res.redirect(`${frontendUrl}/settings?connector=${manifest.id}&oauth=error&reason=${encodeURIComponent(error.message)}`);
+      }
+    });
+
+    // GET /auth/status — returns OAuth connection status (no token values)
+    router.get('/auth/status', async (req, res) => {
+      try {
+        const instanceId = manifest.multiInstance
+          ? (req.query.instanceId as string | undefined)
+          : undefined;
+        const status = await getOAuthStatus(prisma, manifest.id, instanceId);
+        res.json(status);
+      } catch (error: any) {
+        console.error(`OAuth status error for ${manifest.name}:`, error);
+        res.status(500).json({ error: `Failed to get OAuth status: ${error.message}` });
+      }
+    });
+
+    // DELETE /auth/disconnect — clears stored OAuth tokens
+    router.delete('/auth/disconnect', async (req, res) => {
+      try {
+        const instanceId = manifest.multiInstance
+          ? (req.query.instanceId as string | undefined)
+          : undefined;
+        await clearOAuthTokens(prisma, manifest.id, instanceId);
+        res.json({ disconnected: true });
+      } catch (error: any) {
+        console.error(`OAuth disconnect error for ${manifest.name}:`, error);
+        res.status(500).json({ error: `Failed to disconnect: ${error.message}` });
       }
     });
   }

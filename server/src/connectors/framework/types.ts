@@ -2,6 +2,25 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 
 // ──────────────────────────────────────────────
+// OAuth types
+// ──────────────────────────────────────────────
+
+export interface OAuthConfig {
+  authorizationUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  extraAuthParams?: Record<string, string>;
+}
+
+export interface OAuthTokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;   // Unix ms
+  scope?: string;
+  tokenType?: string;
+}
+
+// ──────────────────────────────────────────────
 // Manifest types (mirrors connector.json schema)
 // ──────────────────────────────────────────────
 
@@ -81,6 +100,7 @@ export interface ConnectorManifest {
   import?: ManifestImport;
   push?: ManifestPush;
   aiFields?: { endpoint: string };
+  oauth?: OAuthConfig;
 }
 
 // ──────────────────────────────────────────────
@@ -94,6 +114,11 @@ export interface ConnectorContext {
   getSettings(instanceId?: string): Promise<Record<string, any> | null>;
   /** Ensure a column of the given type exists on the board, returns the column */
   ensureColumn(boardId: string, columnType: string): Promise<any>;
+  /**
+   * Returns a valid access token for the connector instance.
+   * Auto-refreshes if expired. Throws OAuthNotConnectedError or OAuthTokenExpiredError.
+   */
+  getOAuthToken(instanceId?: string): Promise<string>;
 }
 
 // ──────────────────────────────────────────────
@@ -132,4 +157,5 @@ export interface ConnectorHandlers {
   onSettingsSaved?(ctx: ConnectorContext, settings: Record<string, any>, instanceId?: string): Promise<void>;
   onInstall?(ctx: ConnectorContext): Promise<void>;
   onUninstall?(ctx: ConnectorContext): Promise<void>;
+  onOAuthSuccess?(ctx: ConnectorContext, tokens: OAuthTokens, instanceId?: string): Promise<void>;
 }

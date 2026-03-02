@@ -1,13 +1,30 @@
 import os
 import json
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from transcription import transcribe_audio
+from transcription import transcribe_audio, get_model
 from extraction import extract_tasks_from_text, generate_field_content, classify_email_content, generate_reply_content, reword_text_content, generate_section_content, generate_theme_colors
 
-app = FastAPI(title="Todo AI Service")
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    # When TASKMESH_PRELOAD_MODELS=1 (set by the Windows installer), eagerly
+    # load the Whisper model at startup. This triggers a one-time download if
+    # the model is not yet cached, so the first transcription request is instant.
+    if os.getenv("TASKMESH_PRELOAD_MODELS") == "1":
+        print("[TaskMesh AI] Pre-loading Whisper model...", flush=True)
+        try:
+            get_model()
+            print("[TaskMesh AI] Whisper model ready.", flush=True)
+        except Exception as e:
+            print(f"[TaskMesh AI] Whisper model preload failed (non-fatal): {e}", flush=True)
+    yield
+
+
+app = FastAPI(title="Todo AI Service", lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(

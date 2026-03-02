@@ -1,0 +1,7 @@
+{
+  "id": "my-connector",
+  "name": "My Connector",
+  "version": "1.0.0",
+  "description": "A starter TaskMesh connector",
+  "capabilities": ["search", "import"]
+}

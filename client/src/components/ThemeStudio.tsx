@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChevronLeft, Sparkles, Save, Check, X, Loader2, Wand2, AlertTriangle } from 'lucide-react';
 import { useThemeStore } from '../stores/themeStore';
-import { THEME_COLOR_KEYS } from '../themes/themeDefinitions';
+import { builtInThemes, THEME_COLOR_KEYS } from '../themes/themeDefinitions';
 import type { ThemeColorMap, ThemeDefinition } from '../themes/themeDefinitions';
 import { generateThemeColors } from '../api';
 
@@ -9,26 +9,6 @@ interface ThemeStudioProps {
   onClose: () => void;
 }
 
-const DEFAULT_COLORS: ThemeColorMap = {
-  'primary-50': '#f0f9ff',
-  'primary-100': '#e0f2fe',
-  'primary-200': '#bae6fd',
-  'primary-300': '#7dd3fc',
-  'primary-400': '#38bdf8',
-  'primary-500': '#0ea5e9',
-  'primary-600': '#0284c7',
-  'primary-700': '#0369a1',
-  'primary-800': '#075985',
-  'primary-900': '#0c4a6e',
-  'surface': '#ffffff',
-  'surface-secondary': '#f8fafc',
-  'surface-tertiary': '#f1f5f9',
-  'border': '#e2e8f0',
-  'border-secondary': '#cbd5e1',
-  'text-primary': '#0f172a',
-  'text-secondary': '#475569',
-  'text-muted': '#94a3b8',
-};
 
 const COLOR_GROUPS: { label: string; keys: (keyof ThemeColorMap)[] }[] = [
   {
@@ -56,7 +36,11 @@ type OverwriteState = { name: string; existingId: string; apply: boolean } | nul
 
 export function ThemeStudio({ onClose }: ThemeStudioProps) {
   const [themeName, setThemeName] = useState('');
-  const [colors, setColors] = useState<ThemeColorMap>({ ...DEFAULT_COLORS });
+  const [colors, setColors] = useState<ThemeColorMap>(() => {
+    const { themeId, customThemes } = useThemeStore.getState();
+    const active = [...builtInThemes, ...customThemes].find(t => t.id === themeId);
+    return { ...(active?.colors ?? builtInThemes[0].colors) };
+  });
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -98,7 +82,7 @@ export function ThemeStudio({ onClose }: ThemeStudioProps) {
     setAiError(null);
     try {
       const result = await generateThemeColors(aiPrompt.trim());
-      const newColors = { ...DEFAULT_COLORS };
+      const newColors = { ...colors };
       for (const key of THEME_COLOR_KEYS) {
         if (result.colors[key]) {
           newColors[key] = result.colors[key];

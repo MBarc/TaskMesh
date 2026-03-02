@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { ConnectorManifest, ManifestSettingsField } from './types.js';
+import { ConnectorManifest, ManifestSettingsField, OAuthTokens } from './types.js';
 
 /**
  * Derive the ConnectorConfig row ID from connector + optional instance.
@@ -63,6 +63,14 @@ export async function getSettings(
   // Copy custom JSON fields
   for (const cf of manifest.settings.customFields) {
     result[cf.key] = config[cf.key] ?? {};
+  }
+
+  // Inject safe OAuth status (no raw token values)
+  const oauthTokens = config._oauth as OAuthTokens | undefined;
+  if (oauthTokens) {
+    result.oauthConnected = !!oauthTokens.accessToken;
+    result.oauthScope = oauthTokens.scope ?? null;
+    result.oauthExpiresAt = oauthTokens.expiresAt ?? null;
   }
 
   // Include instance metadata for multi-instance connectors
@@ -131,6 +139,11 @@ export async function saveSettings(
   // Copy custom JSON fields
   for (const cf of manifest.settings.customFields) {
     config[cf.key] = data[cf.key] ?? existingConfig[cf.key] ?? {};
+  }
+
+  // Preserve OAuth tokens across settings saves
+  if (existingConfig._oauth) {
+    config._oauth = existingConfig._oauth;
   }
 
   // Multi-instance exclusive active: deactivate other instances

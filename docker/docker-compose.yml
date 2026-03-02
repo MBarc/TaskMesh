@@ -22,9 +22,15 @@ services:
       - todoapp-network
 
   ollama:
-    image: mbarc98/taskmesh-ollama:latest
+    build:
+      context: ollama
+      dockerfile: Dockerfile
+      args:
+        - OLLAMA_MODEL=${OLLAMA_MODEL}
     container_name: todoapp-ollama
     restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
     deploy:
       resources:
         limits:
@@ -33,7 +39,9 @@ services:
       - todoapp-network
 
   ai-service:
-    image: mbarc98/taskmesh-ai-service:latest
+    build:
+      context: ../ai-service
+      dockerfile: Dockerfile
     container_name: todoapp-ai-service
     restart: unless-stopped
     depends_on:
@@ -52,7 +60,9 @@ services:
       - todoapp-network
 
   server:
-    image: mbarc98/taskmesh-server:latest
+    build:
+      context: ../server
+      dockerfile: Dockerfile
     container_name: todoapp-server
     restart: unless-stopped
     depends_on:
@@ -67,10 +77,10 @@ services:
       - DOCUMENTATION_PATH=${DOCUMENTATION_PATH}
     volumes:
       - uploads:/app/uploads
-      - ${DOCUMENTATION_PATH:-./documentation}:/documentation
-      - ./sample-documentation:/sample-documentation
+      - ${DOCUMENTATION_PATH:-../documentation}:/documentation
+      - ../sample-documentation:/sample-documentation
     ports:
-      - "4000:4000"
+      - "${SERVER_PORT:-4000}:4000"
     deploy:
       resources:
         limits:
@@ -79,13 +89,17 @@ services:
       - todoapp-network
 
   client:
-    image: mbarc98/taskmesh-client:latest
+    build:
+      context: ../client
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
     container_name: todoapp-client
     restart: unless-stopped
     depends_on:
       - server
     ports:
-      - "3000:80"
+      - "${CLIENT_PORT:-3000}:80"
     deploy:
       resources:
         limits:
@@ -95,6 +109,7 @@ services:
 
 volumes:
   postgres_data:
+  ollama_data:
   uploads:
 
 networks:

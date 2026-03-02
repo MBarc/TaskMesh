@@ -2,29 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Default Light Theme — :root fallback prevents flash of unstyled content */
+/* Default Light Theme (TaskMesh brand) — :root fallback prevents FOUC */
 :root {
-  --color-primary-50: #f0f9ff;
-  --color-primary-100: #e0f2fe;
-  --color-primary-200: #bae6fd;
-  --color-primary-300: #7dd3fc;
-  --color-primary-400: #38bdf8;
-  --color-primary-500: #0ea5e9;
-  --color-primary-600: #0284c7;
-  --color-primary-700: #0369a1;
-  --color-primary-800: #075985;
-  --color-primary-900: #0c4a6e;
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
 
   --color-surface: #ffffff;
-  --color-surface-secondary: #f8fafc;
-  --color-surface-tertiary: #f1f5f9;
+  --color-surface-secondary: #f9fafb;
+  --color-surface-tertiary: #f3f4f6;
 
-  --color-border: #e2e8f0;
-  --color-border-secondary: #cbd5e1;
+  --color-border: #e5e7eb;
+  --color-border-secondary: #d1d5db;
 
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94a3b8;
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #6b7280;
 }
 
 /* Base styles */

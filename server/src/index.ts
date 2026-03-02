@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import swaggerUi from 'swagger-ui-express';
 import { boardRoutes } from './routes/boards.js';
 import { columnRoutes } from './routes/columns.js';
@@ -12,6 +14,7 @@ import { swaggerSpec } from './lib/swagger.js';
 import { startEmailPoller } from './lib/emailPoller.js';
 import { startArchiveCleaner } from './lib/archiveCleaner.js';
 import { registerAllConnectors } from './connectors/registry.js';
+import { connectorImportRouter } from './routes/connectorImport.js';
 import { prisma } from './lib/prisma.js';
 
 const app = express();
@@ -33,6 +36,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/archive', archiveRoutes);
+app.use('/api/connectors/import', connectorImportRouter);
 
 async function start() {
   // Connector SDK — auto-discover and register connectors
@@ -43,6 +47,19 @@ async function start() {
   app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
   });
+
+  // Serve React SPA when the client build is present (Windows installer deployment).
+  // Client files are installed at {app}/server/public/ — one level up from __dirname
+  // ({app}/server/dist/), so the path is ../public with no ambiguity.
+  // In Docker the server container has no public/ folder so existsSync returns false
+  // and the block is skipped automatically.
+  const clientDist = path.join(__dirname, '../public');
+  if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+    app.use(express.static(clientDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+  }
 
   // Error handler
   app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

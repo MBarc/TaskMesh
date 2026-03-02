@@ -2,21 +2,21 @@
 services:
   server:
     build:
-      context: ./server
+      context: ../server
       dockerfile: Dockerfile.dev
     volumes:
-      - ./server/src:/app/src
-      - ./server/prisma:/app/prisma
+      - ../server/src:/app/src
+      - ../server/prisma:/app/prisma
     command: npm run dev
 
   client:
     build:
-      context: ./client
+      context: ../client
       dockerfile: Dockerfile.dev
     volumes:
-      - ./client/src:/app/src
+      - ../client/src:/app/src
     ports:
-      - "5173:5173"
+      - "${CLIENT_PORT:-5173}:5173"
     command: npm run dev
     deploy:
       resources:
@@ -25,5 +25,5 @@ services:
 
   ai-service:
     volumes:
-      - ./ai-service:/app
+      - ../ai-service:/app
     command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload

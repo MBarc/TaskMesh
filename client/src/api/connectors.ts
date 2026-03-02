@@ -1,6 +1,6 @@
 import type { ConnectorManifest } from '../types/connector';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${endpoint}`, {
@@ -27,6 +27,16 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
 export async function getConnectorManifests(): Promise<ConnectorManifest[]> {
   return fetchAPI<ConnectorManifest[]>('/api/connectors');
+}
+
+export async function importConnector(
+  manifestJson: string,
+  handlerCode: string,
+): Promise<{ success: boolean; connector: ConnectorManifest }> {
+  return fetchAPI('/api/connectors/import', {
+    method: 'POST',
+    body: JSON.stringify({ manifestJson, handlerCode }),
+  });
 }
 
 // ── Generic Settings ──

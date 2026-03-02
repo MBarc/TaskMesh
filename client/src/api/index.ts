@@ -1,6 +1,6 @@
 import type { Board, Column, Task, ColumnType, ExtractedTask, AIExtraction, Platform, AdoSettings, AdoWorkItemType, AdoWorkItemSearchResult, AdoTemplatesConfig, AdoMetadataTemplatesConfig, SnowSettings, SnowIncidentSearchResult, EmailSettings, EmailQueueItem, EmailThreadMessage, EmailProvider, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyHistoryResponse, DocumentationSettings, DocumentDraft, DocumentationTemplate, ArchiveSettings, ArchiveTasksResponse } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${endpoint}`, {

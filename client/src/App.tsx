@@ -20,13 +20,14 @@ import { EmailImportModal } from './components/EmailImportModal';
 import { EmailViewModal } from './components/EmailViewModal';
 import { DocViewerModal } from './components/DocViewerModal';
 import { CustomThemeImport } from './components/CustomThemeImport';
+import { ConnectorImport } from './components/ConnectorImport';
 import { ThemeStudio } from './components/ThemeStudio';
 import { ArchiveSettings } from './components/ArchiveSettings';
 import { ArchiveBoard } from './components/ArchiveBoard';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
 import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
-import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive } from 'lucide-react';
+import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink } from 'lucide-react';
 import * as api from './api';
 
 // Static pages + dynamic connector pages (connector:{id} or connector:{id}:{instanceId})
@@ -60,6 +61,7 @@ function App() {
   const [isEditingBoardName, setIsEditingBoardName] = useState(false);
   const [editBoardName, setEditBoardName] = useState('');
   const [showThemeImport, setShowThemeImport] = useState(false);
+  const [showConnectorImport, setShowConnectorImport] = useState(false);
   const themeId = useThemeStore((state) => state.themeId);
   const customThemes = useThemeStore((state) => state.customThemes);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -102,11 +104,15 @@ function App() {
     fetchBoards();
   }, [fetchBoards]);
 
-  useEffect(() => {
+  const refreshConnectors = useCallback(() => {
     getConnectorManifests()
       .then(setConnectorManifests)
       .catch(() => { /* manifests are non-critical */ });
   }, []);
+
+  useEffect(() => {
+    refreshConnectors();
+  }, [refreshConnectors]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', themeId);
@@ -119,7 +125,7 @@ function App() {
     { id: 'settings' as Tab, label: 'Settings', icon: Settings },
   ];
 
-  type SettingsItem = { id: SettingsPage; label: string; icon: typeof Paintbrush };
+  type SettingsItem = { id: SettingsPage; label: string; icon: typeof Paintbrush; href?: string };
   type SettingsSection = { label: string; items: SettingsItem[] };
 
   const settingsSections: SettingsSection[] = [
@@ -129,6 +135,13 @@ function App() {
         { id: 'appearance', label: 'Appearance', icon: Paintbrush },
         { id: 'archive', label: 'Archive', icon: Archive },
         { id: 'connectors', label: 'Connectors', icon: Plug },
+      ],
+    },
+    {
+      label: 'Help',
+      items: [
+        { id: 'how-to', label: 'How-to Guides', icon: ExternalLink, href: 'https://taskmesh.co/docs' },
+        { id: 'connector-docs', label: 'Connector SDK Docs', icon: ExternalLink, href: 'https://taskmesh.co/docs/what-is-a-connector' },
       ],
     },
     {
@@ -369,17 +382,29 @@ function App() {
                       const isActive = activeSettingsPage === item.id || (item.id === 'connectors' && isConnectorSubPage) || (item.id === 'appearance' && isStudioSubPage);
                       return (
                         <li key={item.id}>
-                          <button
-                            onClick={() => setActiveSettingsPage(item.id)}
-                            className={`w-full flex items-center gap-3 rounded-md py-2 px-3 text-sm transition-colors ${
-                              isActive
-                                ? 'bg-primary-500/10 text-primary-500 font-medium'
-                                : 'text-text-secondary hover:text-text-primary hover:bg-surface-tertiary'
-                            }`}
-                          >
-                            <item.icon className="w-4 h-4 shrink-0" />
-                            {item.label}
-                          </button>
+                          {item.href ? (
+                            <a
+                              href={item.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full flex items-center gap-3 rounded-md py-2 px-3 text-sm transition-colors text-text-secondary hover:text-text-primary hover:bg-surface-tertiary"
+                            >
+                              <item.icon className="w-4 h-4 shrink-0" />
+                              {item.label}
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => setActiveSettingsPage(item.id)}
+                              className={`w-full flex items-center gap-3 rounded-md py-2 px-3 text-sm transition-colors ${
+                                isActive
+                                  ? 'bg-primary-500/10 text-primary-500 font-medium'
+                                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-tertiary'
+                              }`}
+                            >
+                              <item.icon className="w-4 h-4 shrink-0" />
+                              {item.label}
+                            </button>
+                          )}
                         </li>
                       );
                     })}
@@ -509,6 +534,16 @@ function App() {
               {/* Connectors Overview */}
               {activeSettingsPage === 'connectors' && (
                 <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Installed Connectors</h3>
+                    <button
+                      onClick={() => setShowConnectorImport(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-primary-500 rounded-md hover:bg-primary-600 transition-colors"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Install Connector
+                    </button>
+                  </div>
                   {connectorCategories.map((category) => (
                     <div key={category.label}>
                       <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
@@ -540,6 +575,27 @@ function App() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Documentation link */}
+                  <a
+                    href="https://taskmesh.co/docs/what-is-a-connector"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-4 p-4 bg-surface-secondary rounded-lg border border-border cursor-pointer hover:border-primary-500/50 hover:bg-surface-tertiary transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0 group-hover:bg-primary-500/20 transition-colors">
+                      <ExternalLink className="w-5 h-5 text-primary-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-text-primary group-hover:text-primary-500 transition-colors">
+                        Connector Documentation
+                      </div>
+                      <div className="text-xs text-text-muted mt-0.5">
+                        Learn what connectors are, how to install them, and how to build your own
+                      </div>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-text-muted shrink-0" />
+                  </a>
                 </div>
               )}
 
@@ -678,6 +734,14 @@ function App() {
       {/* Custom Theme Import Modal */}
       {showThemeImport && (
         <CustomThemeImport onClose={() => setShowThemeImport(false)} />
+      )}
+
+      {/* Connector Import Modal */}
+      {showConnectorImport && (
+        <ConnectorImport
+          onClose={() => setShowConnectorImport(false)}
+          onSuccess={refreshConnectors}
+        />
       )}
     </div>
   );
