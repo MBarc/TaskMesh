@@ -48,13 +48,15 @@ if ($Target -eq "docker") {
         throw "Docker is not installed or not in PATH."
     }
 
+    $EnvFile = Join-Path $AppDir ".env"
+
     # Build all images defined in the compose file
-    docker compose -f $ComposeFile build
+    docker compose -f $ComposeFile --env-file $EnvFile build
     if ($LASTEXITCODE -ne 0) { throw "docker compose build failed." }
 
     Write-Host ""
     Write-Host "Docker images built." -ForegroundColor Green
-    Write-Host "Start with: docker compose -f application/docker/docker-compose.yml up" -ForegroundColor Cyan
+    Write-Host "Start with: docker compose -f application/docker/docker-compose.yml --env-file application/.env up" -ForegroundColor Cyan
 }
 
 # ── Windows Installer ─────────────────────────────────────────────────────────
