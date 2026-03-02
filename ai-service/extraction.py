@@ -564,8 +564,14 @@ def _generate_palette_from_seeds(hex1: str, hex2: str = None) -> Dict[str, str]:
         "primary-500", "primary-600", "primary-700", "primary-800", "primary-900",
     ]
 
-    h1, _, s1 = _hex_to_hls(hex1)
-    s1 = max(0.45, s1)  # Ensure minimum saturation for a vivid palette
+    h1, _, s1_orig = _hex_to_hls(hex1)
+    # Near-neutral seeds (stone, gray, concrete, etc.) have very low saturation.
+    # Forcing them to 0.45 turns them vivid blue/purple. Instead, apply a gentle
+    # proportional boost so they stay recognizably muted.
+    if s1_orig < 0.12:
+        s1 = min(0.28, s1_orig * 3.0)
+    else:
+        s1 = max(0.45, s1_orig)
 
     colors: Dict[str, str] = {}
 
@@ -576,8 +582,8 @@ def _generate_palette_from_seeds(hex1: str, hex2: str = None) -> Dict[str, str]:
             s = s1 * (0.35 + 0.65 * min(1.0, (1.0 - l) / 0.5))
             colors[key] = _hls_to_hex(h1, l, s)
     else:
-        h2, _, s2 = _hex_to_hls(hex2)
-        s2 = max(0.45, s2)
+        h2, _, s2_orig = _hex_to_hls(hex2)
+        s2 = min(0.28, s2_orig * 3.0) if s2_orig < 0.12 else max(0.45, s2_orig)
         for i, key in enumerate(PRIMARY_KEYS):
             l = LIGHTNESS[i]
             if i <= 4:
@@ -624,6 +630,56 @@ _CULTURAL_OVERRIDES: list = [
     (["bronze", "copper", "gold"],                                  ["#d4a017"]),
 ]
 
+# Semantic overrides: broader keyword categories that the LLM reliably gets wrong.
+# Checked after cultural overrides, before the LLM call.
+# Format: (keywords_any_match, [hex1, hex2_optional])
+_SEMANTIC_OVERRIDES: list = [
+    # Materials / textures
+    (["concrete", "cement", "asphalt", "pavement", "gravel",
+      "cobblestone", "brutalist"],                                  ["#9ca3af"]),  # gray
+    (["rust", "rusty", "corroded", "oxidized"],                    ["#b45309"]),  # rust amber-brown
+    (["obsidian", "charcoal", "ash", "cinder", "soot"],            ["#374151"]),  # dark gray
+
+    # Heat / fire / geology
+    (["forge", "blacksmith", "anvil", "molten", "smelting"],       ["#ea580c"]),  # ember orange
+    (["lava", "magma", "volcanic", "eruption", "volcano"],         ["#dc2626", "#ea580c"]),
+    (["plasma", "solar flare", "sun surface"],                     ["#f59e0b", "#dc2626"]),
+
+    # Ice / cold / winter
+    (["blizzard", "arctic", "tundra", "glacier", "permafrost",
+      "frozen tundra", "polar", "antarctica", "winter",
+      "snowstorm", "snowfield", "wintry"],                         ["#bae6fd"]),  # ice blue
+    (["frost", "frozen", "icicle", "sleet"],                       ["#93c5fd"]),  # cool blue
+
+    # Political / historical
+    (["soviet", "ussr", "bolshevik", "communist party",
+      "propaganda poster", "red army", "cold war"],                ["#dc2626"]),  # Soviet red
+
+    # Hazardous / industrial
+    (["nuclear", "radioactive", "radiation", "fallout",
+      "biohazard", "toxic waste", "chernobyl"],                    ["#84cc16"]),  # hazard green
+    (["toxic", "poison", "venom", "corrosive", "acid"],            ["#a3e635"]),  # neon yellow-green
+
+    # Nature / organic
+    (["bioluminescent", "bioluminescence"],                        ["#06b6d4"]),  # cyan
+    (["deep sea", "deep ocean", "abyss", "mariana", "abyssal"],   ["#1e40af"]),  # deep navy
+    (["coral reef", "tropical fish", "tropical water"],            ["#0891b2", "#f97316"]),
+
+    # Clinical / institutional
+    (["hospital", "clinical", "sterile", "medical", "operating room",
+      "laboratory", "lab coat", "dentist", "dental"],              ["#0891b2"]),  # clinical teal
+
+    # Dark / morbid
+    (["plague", "pestilence", "rot", "decay", "decompose",
+      "putrid", "necrotic", "gangrene"],                           ["#713f12"]),  # dark sepia-brown
+    (["void", "abyss", "darkness", "shadow realm",
+      "black hole", "event horizon"],                              ["#1e1b4b", "#4f46e5"]),
+
+    # Specific aesthetic styles
+    (["sepia", "daguerreotype", "vintage photograph", "old photo"],["#92400e"]),  # sepia brown
+    (["neon", "cyberpunk", "synthwave", "retrowave"],              ["#a855f7", "#06b6d4"]),
+]
+
 # The LLM is only allowed to return a second seed color if the prompt
 # contains one of these keywords. For all other prompts the second seed
 # is ignored, preventing bad guesses (e.g. metals getting purple added).
@@ -636,19 +692,60 @@ _DUAL_HUE_KEYWORDS: set = {
     "hulk",
 }
 
+# Broad keyword-to-seed fallback used when the LLM times out.
+# Ordered most-specific first. First match wins.
+_TIMEOUT_FALLBACKS: list = [
+    (["red", "crimson", "scarlet", "ruby", "blood", "rose",
+      "fire", "flame", "lava", "inferno"],                         "#dc2626"),
+    (["orange", "amber", "rust", "copper", "autumn", "fall",
+      "harvest", "pumpkin", "terracotta"],                         "#ea580c"),
+    (["yellow", "golden", "sun", "sunflower", "mustard",
+      "dandelion", "canary", "lemon"],                             "#d97706"),
+    (["green", "forest", "jungle", "emerald", "moss", "lime",
+      "olive", "sage", "mint", "foliage"],                         "#16a34a"),
+    (["teal", "cyan", "turquoise", "aqua", "seafoam",
+      "bioluminescent", "neon blue"],                              "#0891b2"),
+    (["blue", "ocean", "sea", "sky", "navy", "cobalt", "sapphire",
+      "indigo", "royal", "cerulean", "azure"],                     "#2563eb"),
+    (["purple", "violet", "lavender", "mauve", "plum",
+      "amethyst", "lilac", "magenta"],                             "#7c3aed"),
+    (["pink", "blush", "rose", "coral", "salmon", "peach",
+      "blossom", "flamingo"],                                      "#ec4899"),
+    (["brown", "tan", "beige", "khaki", "caramel", "leather",
+      "wood", "walnut", "mahogany", "earthy"],                     "#92400e"),
+    (["gray", "grey", "silver", "slate", "ash", "concrete",
+      "steel", "charcoal", "stone"],                               "#6b7280"),
+    (["white", "snow", "ivory", "cream", "linen", "pearl",
+      "bleach", "frost"],                                          "#94a3b8"),
+    (["black", "dark", "night", "midnight", "shadow", "noir",
+      "void", "space"],                                            "#1e1b4b"),
+]
+
+
+def _keyword_fallback_seed(prompt_lower: str) -> str:
+    """
+    Scan the prompt for color-indicative keywords and return a matching seed hex.
+    Used when the LLM times out. Returns a neutral blue if nothing matches.
+    """
+    for keywords, seed in _TIMEOUT_FALLBACKS:
+        if any(kw in prompt_lower for kw in keywords):
+            return seed
+    return "#3b82f6"  # default: blue
+
 
 async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
     """
     Generate a UI theme color palette from a text description.
 
-    Uses a two-step approach:
-      1. Check cultural override table (instant, no LLM needed for known themes).
-      2. Otherwise ask the LLM for 1 seed hex color, then derive the full
-         18-color palette algorithmically.
+    Resolution order:
+      1. Cultural overrides  — exact holiday/cultural theme matches (no LLM).
+      2. Semantic overrides  — broad keyword categories the LLM reliably gets wrong.
+      3. LLM call            — 25-second timeout; ask for 1-2 seed hex colors.
+      4. Keyword fallback    — if the LLM times out, pick a seed from _TIMEOUT_FALLBACKS.
     """
     prompt_lower = prompt.lower()
 
-    # --- Cultural override: bypass LLM for well-known themes ---
+    # 1. Cultural override
     for keywords, seeds in _CULTURAL_OVERRIDES:
         if any(kw in prompt_lower for kw in keywords):
             hex1 = seeds[0]
@@ -656,12 +753,19 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
             colors = _generate_palette_from_seeds(hex1, hex2)
             return {"isDark": False, "colors": colors}
 
-    # --- Determine if a second seed color should be accepted ---
-    allow_dual = any(kw in prompt_lower for kw in _DUAL_HUE_KEYWORDS)
+    # 2. Semantic override
+    for keywords, seeds in _SEMANTIC_OVERRIDES:
+        if any(kw in prompt_lower for kw in keywords):
+            hex1 = seeds[0]
+            hex2 = seeds[1] if len(seeds) > 1 else None
+            colors = _generate_palette_from_seeds(hex1, hex2)
+            return {"isDark": False, "colors": colors}
 
+    # 3. LLM call — short timeout so users aren't left waiting
+    allow_dual = any(kw in prompt_lower for kw in _DUAL_HUE_KEYWORDS)
     formatted_prompt = IDENTIFY_COLORS_PROMPT.format(prompt=prompt)
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=25.0) as client:
         try:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
@@ -690,13 +794,13 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
             start = response_text.find("{")
             end = response_text.rfind("}")
             if start == -1 or end <= start:
-                raise Exception("No JSON object found in AI response")
+                raise ValueError("No JSON object found in AI response")
 
             parsed = json.loads(response_text[start:end + 1])
             seed_colors = parsed.get("colors", [])
 
             if not seed_colors or not _is_valid_hex(seed_colors[0]):
-                raise Exception(f"Invalid seed color returned: {seed_colors}")
+                raise ValueError(f"Invalid seed color returned: {seed_colors}")
 
             hex1 = seed_colors[0].strip().lower()
             hex2 = (
@@ -706,12 +810,13 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
             )
 
             colors = _generate_palette_from_seeds(hex1, hex2)
-            is_dark = False  # Light theme by default
+            return {"isDark": False, "colors": colors}
 
-            return {"isDark": is_dark, "colors": colors}
-
-        except httpx.TimeoutException:
-            raise Exception("Ollama request timed out.")
+        except (httpx.TimeoutException, httpx.ConnectError):
+            # 4. Keyword fallback — fast, deterministic, no LLM needed
+            seed = _keyword_fallback_seed(prompt_lower)
+            colors = _generate_palette_from_seeds(seed)
+            return {"isDark": False, "colors": colors}
         except httpx.HTTPStatusError as e:
             raise Exception(f"Ollama request failed: {e.response.status_code}")
         except json.JSONDecodeError:
