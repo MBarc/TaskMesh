@@ -20,8 +20,7 @@ function parseTemplateFrontmatter(raw: string): { frontmatter: TemplateFrontmatt
   return { frontmatter: parsed || {}, content: match[2].replace(/^\r?\n/, '') };
 }
 
-const CONTAINER_BASE_PATH = '/documentation';
-const getLocalPath = () => process.env.DOCUMENTATION_PATH || '';
+const getDocPath = () => process.env.DOCUMENTATION_PATH || '/documentation';
 
 const handlers: ConnectorHandlers = {
 
@@ -36,7 +35,7 @@ const handlers: ConnectorHandlers = {
 
         res.json({
           subfolder: settings?.subfolder || '',
-          localPath: getLocalPath(),
+          localPath: getDocPath(),
           templates: settings?.templates || null,
           customVariables: settings?.customVariables || null,
         });
@@ -68,7 +67,7 @@ const handlers: ConnectorHandlers = {
 
         res.json({
           subfolder: settings.subfolder,
-          localPath: getLocalPath(),
+          localPath: getDocPath(),
           templates: settings.templates,
           customVariables: settings.customVariables,
         });
@@ -95,8 +94,8 @@ const handlers: ConnectorHandlers = {
         const fullFileName = safeName.endsWith('.md') ? safeName : `${safeName}.md`;
         const subfolder = settings?.subfolder || '';
         const dirPath = subfolder
-          ? path.join(CONTAINER_BASE_PATH, subfolder)
-          : CONTAINER_BASE_PATH;
+          ? path.join(getDocPath(), subfolder)
+          : getDocPath();
         const filePath = path.join(dirPath, fullFileName);
 
         fs.mkdirSync(dirPath, { recursive: true });
@@ -269,7 +268,7 @@ const handlers: ConnectorHandlers = {
         }
 
         const normalizedFilePath = path.normalize(filePath);
-        const normalizedBasePath = path.normalize(CONTAINER_BASE_PATH);
+        const normalizedBasePath = path.normalize(getDocPath());
 
         if (!normalizedFilePath.startsWith(normalizedBasePath)) {
           return res.status(403).json({ error: 'Access denied: file is outside base path' });

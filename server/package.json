@@ -1,7 +1,7 @@
 {
-  "name": "todoapp-server",
+  "name": "taskmesh-server",
   "version": "1.0.0",
-  "description": "To-Do List Application Backend",
+  "description": "TaskMesh Backend",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

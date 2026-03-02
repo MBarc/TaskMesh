@@ -172,7 +172,7 @@ export function DocumentationSettingsPanel() {
             </div>
           ) : (
             <div className="px-3 py-2 text-sm bg-amber-50 border border-amber-200 rounded-md text-amber-700">
-              Not configured. Set <code className="bg-amber-100 px-1 rounded">DOCUMENTATION_PATH</code> in your <code className="bg-amber-100 px-1 rounded">.env</code> file and restart the containers.
+              No documentation path configured. Set <code className="bg-amber-100 px-1 rounded">DOCUMENTATION_PATH</code> in your environment and restart the server.
             </div>
           )}
         </div>

@@ -510,35 +510,156 @@ async def generate_section_content(section_name: str, template_context: str = ""
             raise Exception(f"Failed to generate section: {str(e)}")
 
 
-GENERATE_THEME_PROMPT = """You are a color palette designer for a UI theme system. Given a user's description, generate a complete color palette that evokes the feeling, mood, or visual they describe.
+# Step 1: Ask the model for 1-2 iconic seed colors only — a simple lookup task
+# that small models handle reliably. The full palette is derived algorithmically.
+IDENTIFY_COLORS_PROMPT = """Identify the 1 or 2 most iconic hex colors for a UI theme based on this description.
 
-The palette must contain exactly 18 hex color values for these keys:
-- primary-50 through primary-900 (10 shades from lightest to darkest)
-- surface (main background)
-- surface-secondary (slightly different background)
-- surface-tertiary (third level background)
-- border (main border color)
-- border-secondary (secondary border color)
-- text-primary (main text color)
-- text-secondary (secondary text color)
-- text-muted (muted/subtle text color)
+For one dominant color, respond: {{"colors": ["#rrggbb"]}}
+For two dominant colors (blend themes), respond: {{"colors": ["#rrggbb", "#rrggbb"]}}
 
-Rules:
-- All values must be valid 6-digit hex colors (e.g., #f0f9ff)
-- primary-50 should be the lightest, primary-900 the darkest
-- Surface colors should provide good contrast with text colors
-- Text colors should be readable against surface colors
-- The isDark field should be true if this is a dark theme, false for light
+Examples:
+- "only blue" → {{"colors": ["#2563eb"]}}
+- "st. patty's day" → {{"colors": ["#16a34a"]}}
+- "fourth of july" → {{"colors": ["#dc2626", "#1d4ed8"]}}
+- "christmas season" → {{"colors": ["#16a34a", "#dc2626"]}}
+- "the incredible hulk" → {{"colors": ["#22c55e", "#7c3aed"]}}
+- "australian outback" → {{"colors": ["#b45309"]}}
+- "bronze, copper, and gold" → {{"colors": ["#d97706"]}}
+- "tomato garden" → {{"colors": ["#dc2626"]}}
+- "orange creamsicle" → {{"colors": ["#f97316"]}}
+- "birthday cake ice cream" → {{"colors": ["#f472b6"]}}
 
-User's description: {prompt}
+Description: {prompt}
 
-Respond ONLY with a JSON object in this exact format, no additional text:
-{{"isDark": false, "colors": {{"primary-50": "#...", "primary-100": "#...", "primary-200": "#...", "primary-300": "#...", "primary-400": "#...", "primary-500": "#...", "primary-600": "#...", "primary-700": "#...", "primary-800": "#...", "primary-900": "#...", "surface": "#...", "surface-secondary": "#...", "surface-tertiary": "#...", "border": "#...", "border-secondary": "#...", "text-primary": "#...", "text-secondary": "#...", "text-muted": "#..."}}}}"""
+Respond with ONLY the JSON object, nothing else:"""
+
+
+def _hex_to_hls(hex_color: str) -> tuple:
+    """Convert a hex color to Python's (h, l, s) tuple."""
+    import colorsys
+    h = hex_color.lstrip('#').lower()
+    r, g, b = int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0
+    return colorsys.rgb_to_hls(r, g, b)  # returns (hue, lightness, saturation)
+
+
+def _hls_to_hex(h: float, l: float, s: float) -> str:
+    """Convert HLS floats to a lowercase hex color string."""
+    import colorsys
+    r, g, b = colorsys.hls_to_rgb(h, max(0.0, min(1.0, l)), max(0.0, min(1.0, s)))
+    return f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}"
+
+
+def _generate_palette_from_seeds(hex1: str, hex2: str = None) -> Dict[str, str]:
+    """
+    Algorithmically generate a full 18-color UI palette from 1–2 seed hex colors.
+
+    For single-hue themes: uniform tint-to-shade ramp of hex1.
+    For two-hue themes: hex1 at the light end (50–400), hex2 at the dark end (600–900).
+    Surface, border, and text values are derived directly from the primary scale.
+    """
+    # Tailwind-inspired lightness distribution
+    LIGHTNESS = [0.96, 0.92, 0.84, 0.72, 0.60, 0.46, 0.38, 0.30, 0.22, 0.15]
+    PRIMARY_KEYS = [
+        "primary-50", "primary-100", "primary-200", "primary-300", "primary-400",
+        "primary-500", "primary-600", "primary-700", "primary-800", "primary-900",
+    ]
+
+    h1, _, s1 = _hex_to_hls(hex1)
+    s1 = max(0.45, s1)  # Ensure minimum saturation for a vivid palette
+
+    colors: Dict[str, str] = {}
+
+    if hex2 is None:
+        for i, key in enumerate(PRIMARY_KEYS):
+            l = LIGHTNESS[i]
+            # Slightly desaturate very light shades so they work as backgrounds
+            s = s1 * (0.35 + 0.65 * min(1.0, (1.0 - l) / 0.5))
+            colors[key] = _hls_to_hex(h1, l, s)
+    else:
+        h2, _, s2 = _hex_to_hls(hex2)
+        s2 = max(0.45, s2)
+        for i, key in enumerate(PRIMARY_KEYS):
+            l = LIGHTNESS[i]
+            if i <= 4:
+                s = s1 * (0.35 + 0.65 * min(1.0, (1.0 - l) / 0.5))
+                colors[key] = _hls_to_hex(h1, l, s)
+            else:
+                s = s2 * (0.35 + 0.65 * min(1.0, (1.0 - l) / 0.5))
+                colors[key] = _hls_to_hex(h2, l, s)
+
+    # Derive surface/border/text directly from the primary scale
+    colors["surface"]           = colors["primary-50"]
+    colors["surface-secondary"] = colors["primary-100"]
+    colors["surface-tertiary"]  = colors["primary-200"]
+    colors["border"]            = colors["primary-300"]
+    colors["border-secondary"]  = colors["primary-200"]
+    colors["text-primary"]      = colors["primary-900"]
+    colors["text-secondary"]    = colors["primary-800"]
+    colors["text-muted"]        = colors["primary-600"]
+
+    return colors
+
+
+def _is_valid_hex(value: str) -> bool:
+    """Return True if value is a valid 6-digit hex color."""
+    import re
+    return bool(re.match(r'^#[0-9a-fA-F]{6}$', value.strip()))
+
+
+# Themes with well-known, unambiguous color associations.
+# These bypass the LLM entirely to guarantee correct results.
+# Format: (keywords_any_match, [hex1, hex2_optional])
+_CULTURAL_OVERRIDES: list = [
+    (["christmas", "xmas"],                                         ["#16a34a", "#dc2626"]),
+    (["st. patty", "st patty", "st. patrick", "st patrick",
+      "saint patrick", "paddy's", "paddys"],                       ["#16a34a"]),
+    (["fourth of july", "4th of july", "july 4", "july 4th",
+      "independence day"],                                          ["#dc2626", "#1d4ed8"]),
+    (["halloween"],                                                 ["#ea580c", "#1c1917"]),
+    (["valentine's day", "valentines day", "valentine day"],        ["#dc2626", "#fce7f3"]),
+    (["hanukkah", "chanukah"],                                      ["#1d4ed8", "#e2e8f0"]),
+    (["thanksgiving"],                                              ["#c2410c", "#92400e"]),
+    (["mardi gras"],                                                ["#7c3aed", "#16a34a"]),
+    (["incredible hulk", "the hulk"],                               ["#22c55e", "#7c3aed"]),
+    (["bronze", "copper", "gold"],                                  ["#d4a017"]),
+]
+
+# The LLM is only allowed to return a second seed color if the prompt
+# contains one of these keywords. For all other prompts the second seed
+# is ignored, preventing bad guesses (e.g. metals getting purple added).
+_DUAL_HUE_KEYWORDS: set = {
+    "sunset", "sunrise", "dawn", "dusk",
+    "day and night", "night and day",
+    "fire and ice", "ice and fire",
+    "yin yang", "yin-yang",
+    "ocean and", "and ocean",
+    "hulk",
+}
 
 
 async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
-    """Generate a theme color palette from a text description using Ollama LLM."""
-    formatted_prompt = GENERATE_THEME_PROMPT.format(prompt=prompt)
+    """
+    Generate a UI theme color palette from a text description.
+
+    Uses a two-step approach:
+      1. Check cultural override table (instant, no LLM needed for known themes).
+      2. Otherwise ask the LLM for 1 seed hex color, then derive the full
+         18-color palette algorithmically.
+    """
+    prompt_lower = prompt.lower()
+
+    # --- Cultural override: bypass LLM for well-known themes ---
+    for keywords, seeds in _CULTURAL_OVERRIDES:
+        if any(kw in prompt_lower for kw in keywords):
+            hex1 = seeds[0]
+            hex2 = seeds[1] if len(seeds) > 1 else None
+            colors = _generate_palette_from_seeds(hex1, hex2)
+            return {"isDark": False, "colors": colors}
+
+    # --- Determine if a second seed color should be accepted ---
+    allow_dual = any(kw in prompt_lower for kw in _DUAL_HUE_KEYWORDS)
+
+    formatted_prompt = IDENTIFY_COLORS_PROMPT.format(prompt=prompt)
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         try:
@@ -549,8 +670,8 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
                     "prompt": formatted_prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.7,
-                        "num_predict": 1024,
+                        "temperature": 0.1,
+                        "num_predict": 64,
                     }
                 }
             )
@@ -559,36 +680,35 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
             result = response.json()
             response_text = result.get("response", "").strip()
 
-            # Strip markdown code fences if present
+            # Strip markdown fences if present
             if response_text.startswith("```"):
-                lines = response_text.split("\n")
-                lines = lines[1:]
+                lines = response_text.split("\n")[1:]
                 if lines and lines[-1].strip() == "```":
                     lines = lines[:-1]
                 response_text = "\n".join(lines).strip()
 
-            # Parse JSON object from response
             start = response_text.find("{")
             end = response_text.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                parsed = json.loads(response_text[start:end + 1])
-                is_dark = bool(parsed.get("isDark", False))
-                colors = parsed.get("colors", {})
+            if start == -1 or end <= start:
+                raise Exception("No JSON object found in AI response")
 
-                required_keys = [
-                    "primary-50", "primary-100", "primary-200", "primary-300", "primary-400",
-                    "primary-500", "primary-600", "primary-700", "primary-800", "primary-900",
-                    "surface", "surface-secondary", "surface-tertiary",
-                    "border", "border-secondary",
-                    "text-primary", "text-secondary", "text-muted",
-                ]
-                for key in required_keys:
-                    if key not in colors:
-                        raise Exception(f"Missing color key: {key}")
+            parsed = json.loads(response_text[start:end + 1])
+            seed_colors = parsed.get("colors", [])
 
-                return {"isDark": is_dark, "colors": colors}
+            if not seed_colors or not _is_valid_hex(seed_colors[0]):
+                raise Exception(f"Invalid seed color returned: {seed_colors}")
 
-            raise Exception("Failed to parse theme colors from AI response")
+            hex1 = seed_colors[0].strip().lower()
+            hex2 = (
+                seed_colors[1].strip().lower()
+                if allow_dual and len(seed_colors) > 1 and _is_valid_hex(seed_colors[1])
+                else None
+            )
+
+            colors = _generate_palette_from_seeds(hex1, hex2)
+            is_dark = False  # Light theme by default
+
+            return {"isDark": is_dark, "colors": colors}
 
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out.")

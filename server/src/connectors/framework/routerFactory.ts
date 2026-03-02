@@ -59,6 +59,11 @@ export function buildConnectorRouter(
   const ctx = createConnectorContext(prisma, manifest);
   const caps = new Set(manifest.capabilities);
 
+  // ── Custom Routes (registered first so they take priority over auto-generated routes) ──
+  if (handlers.registerCustomRoutes) {
+    handlers.registerCustomRoutes(router, ctx);
+  }
+
   // ── Settings CRUD ──
   if (caps.has('settings')) {
     if (manifest.multiInstance) {
@@ -297,11 +302,6 @@ export function buildConnectorRouter(
         res.status(500).json({ error: `Failed to generate field: ${error.message}` });
       }
     });
-  }
-
-  // ── Custom Routes (escape hatch) ──
-  if (handlers.registerCustomRoutes) {
-    handlers.registerCustomRoutes(router, ctx);
   }
 
   return router;

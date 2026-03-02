@@ -139,8 +139,8 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
       await removeDocumentationColumn();
     } else {
       const settings = await getDocumentationSettings().catch(() => null);
-      if (!settings || !settings.localPath) {
-        setDocumentationError('Documentation not configured. Please set DOCUMENTATION_PATH in your .env file and restart the containers.');
+      if (!settings) {
+        setDocumentationError('Could not reach the documentation service. Please check that the server is running.');
         return;
       }
       setDocumentationError(null);

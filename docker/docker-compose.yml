@@ -1,7 +1,9 @@
+name: taskmesh
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: todoapp-postgres
+    container_name: taskmesh-postgres
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -19,7 +21,7 @@ services:
         limits:
           memory: 256M
     networks:
-      - todoapp-network
+      - taskmesh-network
 
   ollama:
     build:
@@ -27,7 +29,7 @@ services:
       dockerfile: Dockerfile
       args:
         - OLLAMA_MODEL=${OLLAMA_MODEL}
-    container_name: todoapp-ollama
+    container_name: taskmesh-ollama
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
@@ -36,13 +38,13 @@ services:
         limits:
           memory: 4G
     networks:
-      - todoapp-network
+      - taskmesh-network
 
   ai-service:
     build:
       context: ../ai-service
       dockerfile: Dockerfile
-    container_name: todoapp-ai-service
+    container_name: taskmesh-ai-service
     restart: unless-stopped
     depends_on:
       - ollama
@@ -57,13 +59,13 @@ services:
         limits:
           memory: 512M
     networks:
-      - todoapp-network
+      - taskmesh-network
 
   server:
     build:
       context: ../server
       dockerfile: Dockerfile
-    container_name: todoapp-server
+    container_name: taskmesh-server
     restart: unless-stopped
     depends_on:
       postgres:
@@ -86,7 +88,7 @@ services:
         limits:
           memory: 256M
     networks:
-      - todoapp-network
+      - taskmesh-network
 
   client:
     build:
@@ -94,7 +96,7 @@ services:
       dockerfile: Dockerfile
       args:
         - VITE_API_URL=${VITE_API_URL}
-    container_name: todoapp-client
+    container_name: taskmesh-client
     restart: unless-stopped
     depends_on:
       - server
@@ -105,7 +107,7 @@ services:
         limits:
           memory: 128M
     networks:
-      - todoapp-network
+      - taskmesh-network
 
 volumes:
   postgres_data:
@@ -113,5 +115,5 @@ volumes:
   uploads:
 
 networks:
-  todoapp-network:
+  taskmesh-network:
     driver: bridge

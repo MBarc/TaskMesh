@@ -359,10 +359,73 @@ aiRoutes.post('/generate-section', async (req, res) => {
  * /api/ai/generate-theme:
  *   post:
  *     tags: [AI]
- *     summary: Generate a theme color palette from a text description
+ *     summary: Generate a UI theme color palette from a text description
+ *     description: >
+ *       Uses a local Ollama LLM to generate a complete 18-color UI theme palette
+ *       based on a natural-language description. All colors are derived from the
+ *       dominant hue(s) implied by the description — for example, "only blue"
+ *       produces a palette of blue-tinted colors across all roles.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [prompt]
+ *             properties:
+ *               prompt:
+ *                 type: string
+ *                 description: A natural-language description of the desired theme
+ *                 example: "calm ocean sunset"
  *     responses:
  *       200:
  *         description: Generated theme colors
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isDark:
+ *                   type: boolean
+ *                   description: Whether the generated theme is a dark theme
+ *                 colors:
+ *                   type: object
+ *                   description: Map of color role to hex value
+ *                   properties:
+ *                     primary-50:  { type: string, example: "#eff6ff" }
+ *                     primary-100: { type: string, example: "#dbeafe" }
+ *                     primary-200: { type: string, example: "#bfdbfe" }
+ *                     primary-300: { type: string, example: "#93c5fd" }
+ *                     primary-400: { type: string, example: "#60a5fa" }
+ *                     primary-500: { type: string, example: "#3b82f6" }
+ *                     primary-600: { type: string, example: "#2563eb" }
+ *                     primary-700: { type: string, example: "#1d4ed8" }
+ *                     primary-800: { type: string, example: "#1e40af" }
+ *                     primary-900: { type: string, example: "#1e3a8a" }
+ *                     surface:            { type: string, example: "#f0f4ff" }
+ *                     surface-secondary:  { type: string, example: "#e8eeff" }
+ *                     surface-tertiary:   { type: string, example: "#dde5ff" }
+ *                     border:             { type: string, example: "#b8c9f8" }
+ *                     border-secondary:   { type: string, example: "#d4dcfb" }
+ *                     text-primary:       { type: string, example: "#1a2e6b" }
+ *                     text-secondary:     { type: string, example: "#3a4f8c" }
+ *                     text-muted:         { type: string, example: "#6b7eb8" }
+ *       400:
+ *         description: Missing prompt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error: { type: string, example: "prompt is required" }
+ *       500:
+ *         description: AI service error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error: { type: string, example: "Failed to generate theme" }
  */
 aiRoutes.post('/generate-theme', async (req, res) => {
   try {
