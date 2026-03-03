@@ -23,7 +23,7 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-LicenseFile=assets\LICENSE.txt
+LicenseFile=..\shared\LICENSE.txt
 OutputDir=Output
 OutputBaseFilename=TaskMesh-Setup
 SetupIconFile=assets\taskmesh.ico
@@ -87,9 +87,9 @@ Source: "dist\ai-service\*";        DestDir: "{app}\ai-service";        Flags: i
 Source: "dist\ffmpeg\ffmpeg.exe";   DestDir: "{app}\ffmpeg";             Flags: ignoreversion; Components: ai
 
 ; Connector SDK (optional)
-Source: "..\server\src\connectors\framework\*"; DestDir: "{app}\sdk\framework"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
-Source: "assets\manifest.schema.json";                       DestDir: "{app}\sdk";           Flags: ignoreversion; Components: sdk
-Source: "assets\example-connector\*";                        DestDir: "{app}\sdk\example-connector"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
+Source: "..\..\server\src\connectors\framework\*"; DestDir: "{app}\sdk\framework"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
+Source: "..\..\server\src\connectors\manifest.schema.json";  DestDir: "{app}\sdk";           Flags: ignoreversion; Components: sdk
+Source: "..\..\server\src\connectors\example-connector\*";   DestDir: "{app}\sdk\example-connector"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
 
 ; ─── [Components] ─────────────────────────────────────────────────────────────
 [Components]

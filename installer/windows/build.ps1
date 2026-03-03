@@ -1,6 +1,6 @@
 ﻿# ─────────────────────────────────────────────────────────────────────────────
 # TaskMesh Windows Installer Build Pipeline
-# Produces: application/installer/Output/TaskMesh-Setup.exe
+# Produces: application/installer/windows/Output/TaskMesh-Setup.exe
 #
 # Prerequisites (must be installed on the build machine):
 #   - Node.js v20+ in PATH
@@ -22,8 +22,8 @@ if ($IsccPath -eq "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -and -not (Test
     $userIscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     if (Test-Path $userIscc) { $IsccPath = $userIscc }
 }
-$Root      = Split-Path $PSScriptRoot -Parent   # application/
-$Installer = $PSScriptRoot                       # application/installer/
+$Root      = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent  # application/
+$Installer = $PSScriptRoot                                          # application/installer/windows/
 $Dist      = Join-Path $Installer "dist"
 
 function Step([string]$msg) {
@@ -355,32 +355,20 @@ if ($SkipAI) {
 # ── 6. Create placeholder assets if missing ───────────────────────────────────
 Step "Checking installer assets"
 $AssetsDir = Join-Path $Installer "assets"
+$SharedDir = Join-Path (Split-Path $Installer -Parent) "shared"
 New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $SharedDir  | Out-Null
 
-if (-not (Test-Path (Join-Path $AssetsDir "LICENSE.txt"))) {
-    Set-Content (Join-Path $AssetsDir "LICENSE.txt") "TaskMesh - All rights reserved.`nSee https://taskmesh.co for license terms."
-    Write-Host "Created placeholder LICENSE.txt" -ForegroundColor Yellow
+if (-not (Test-Path (Join-Path $SharedDir "LICENSE.txt"))) {
+    Set-Content (Join-Path $SharedDir "LICENSE.txt") "TaskMesh - All rights reserved.`nSee https://taskmesh.co for license terms."
+    Write-Host "Created placeholder shared\LICENSE.txt" -ForegroundColor Yellow
 }
-if (-not (Test-Path (Join-Path $AssetsDir "manifest.schema.json"))) {
-    '{"$schema":"http://json-schema.org/draft-07/schema","title":"Connector Manifest"}' | Set-Content (Join-Path $AssetsDir "manifest.schema.json")
-}
-
-$ExConnDir = Join-Path $AssetsDir "example-connector"
-if (-not (Test-Path $ExConnDir)) {
-    New-Item -ItemType Directory -Force -Path $ExConnDir | Out-Null
-    Set-Content (Join-Path $ExConnDir "manifest.json") '{
-  "id": "my-connector",
-  "name": "My Connector",
-  "version": "1.0.0",
-  "description": "A starter TaskMesh connector",
-  "capabilities": ["search", "import"]
-}'
-    Set-Content (Join-Path $ExConnDir "handlers.ts") '// Implement ConnectorHandlers from ../sdk/framework/types'
-}
+# manifest.schema.json and example-connector live in server/src/connectors/ —
+# referenced directly from taskmesh-setup.iss; no placeholder needed here.
 
 # Generate placeholder brand assets using the website's indigo color scheme.
 # Skips generation only if the file already exceeds 1 KB (i.e., a designer asset
-# has been dropped in). Delete the files from installer/assets/ to force-regenerate.
+# has been dropped in). Delete the files from installer/windows/assets/ to force-regenerate.
 # welcome.bmp  — 164×314  WizardImageFile: left sidebar on Welcome/Finish pages
 # banner.bmp   — 55×55    WizardSmallImageFile: top-right corner on inner pages
 # taskmesh.ico — 256×256  setup EXE / taskbar / shortcut icon
