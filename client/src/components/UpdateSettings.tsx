@@ -4,12 +4,21 @@ import * as api from '../api';
 
 type ApplyState = 'idle' | 'applying' | 'waiting' | 'done';
 
+// Progress milestones (rough estimates):
+//   0  – 35%  downloading the installer (~60 s for 90 MB)
+//   35 – 85%  installer running / server offline
+//   85 – 99%  server is back up, finishing
+//  100%        done
+const DOWNLOAD_TICKS = 30;   // ~60 s until server goes down
+const INSTALL_TICKS  = 25;   // ~50 s for installer to run
+
 export function UpdateSettings() {
   const [status, setStatus] = useState<api.UpdateStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [applyState, setApplyState] = useState<ApplyState>('idle');
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -31,11 +40,13 @@ export function UpdateSettings() {
   async function handleDownloadNow() {
     setApplyError(null);
     setApplyState('applying');
+    setProgress(0);
     try {
       await api.applyUpdate();
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Update failed');
       setApplyState('idle');
+      setProgress(0);
       return;
     }
 
@@ -45,6 +56,9 @@ export function UpdateSettings() {
     setApplyState('waiting');
     let serverWentDown = false;
     let attempts = 0;
+    let downloadTicks = 0;
+    let installTicks = 0;
+
     pollRef.current = setInterval(async () => {
       attempts++;
       try {
@@ -52,19 +66,26 @@ export function UpdateSettings() {
         if (res.ok && serverWentDown) {
           // Server came back up after going down — real restart completed
           clearInterval(pollRef.current!);
+          setProgress(100);
           setApplyState('done');
           setTimeout(() => window.location.reload(), 1500);
+        } else if (!serverWentDown) {
+          // Download still in progress — advance 0 → 35%
+          downloadTicks++;
+          setProgress(Math.min(35, Math.round((downloadTicks / DOWNLOAD_TICKS) * 35)));
         }
-        // If res.ok but serverWentDown is false, the download is still in
-        // progress — keep waiting silently.
       } catch {
         // Server is offline — the installer is running
         serverWentDown = true;
+        installTicks++;
+        // Advance 35 → 90% while server is offline
+        setProgress(Math.min(90, 35 + Math.round((installTicks / INSTALL_TICKS) * 55)));
         if (attempts > 150) {
           // ~5 minutes total
           clearInterval(pollRef.current!);
           setApplyError('Server did not restart in time. Please refresh the page manually.');
           setApplyState('idle');
+          setProgress(0);
         }
       }
     }, 2000);
@@ -104,20 +125,31 @@ export function UpdateSettings() {
     <div className="space-y-4">
       {/* Applying overlay card */}
       {isApplying && (
-        <div className="bg-primary-500/10 border border-primary-500/30 rounded-lg p-4 flex items-start gap-3">
-          <RefreshCw className="w-4 h-4 text-primary-500 shrink-0 mt-0.5 animate-spin" />
-          <div>
-            <p className="text-sm font-medium text-text-primary">
-              {applyState === 'applying' && 'Downloading update…'}
-              {applyState === 'waiting' && 'Installing… TaskMesh will restart automatically'}
-              {applyState === 'done' && 'Restarting…'}
-            </p>
-            <p className="text-xs text-text-muted mt-0.5">
-              {applyState === 'applying' && 'Fetching the latest release from GitHub.'}
-              {applyState === 'waiting' && "Don't close this tab — the page will reload when it's ready."}
-              {applyState === 'done' && 'Almost there…'}
-            </p>
+        <div className="bg-primary-500/10 border border-primary-500/30 rounded-lg p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <RefreshCw className="w-4 h-4 text-primary-500 shrink-0 mt-0.5 animate-spin" />
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {applyState === 'applying' && 'Starting update…'}
+                {applyState === 'waiting' && (progress < 35 ? 'Downloading update…' : progress < 90 ? 'Installing… TaskMesh will restart automatically' : 'Restarting…')}
+                {applyState === 'done' && 'Restarting…'}
+              </p>
+              <p className="text-xs text-text-muted mt-0.5">
+                {applyState === 'applying' && 'Contacting update server.'}
+                {applyState === 'waiting' && progress < 35 && 'Fetching the latest release from GitHub.'}
+                {applyState === 'waiting' && progress >= 35 && progress < 90 && "Don't close this tab — the page will reload when it's ready."}
+                {(applyState === 'done' || (applyState === 'waiting' && progress >= 90)) && 'Almost there…'}
+              </p>
+            </div>
           </div>
+          {/* Progress bar */}
+          <div className="w-full bg-primary-500/20 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full bg-primary-500 rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-xs text-text-muted text-right">{progress}%</p>
         </div>
       )}
 
