@@ -4,14 +4,6 @@ import * as api from '../api';
 
 type ApplyState = 'idle' | 'applying' | 'waiting' | 'done';
 
-// Progress milestones (rough estimates):
-//   0  – 35%  downloading the installer (~60 s for 90 MB)
-//   35 – 85%  installer running / server offline
-//   85 – 99%  server is back up, finishing
-//  100%        done
-const DOWNLOAD_TICKS = 30;   // ~60 s until server goes down
-const INSTALL_TICKS  = 25;   // ~50 s for installer to run
-
 export function UpdateSettings() {
   const [status, setStatus] = useState<api.UpdateStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -19,6 +11,7 @@ export function UpdateSettings() {
   const [applyState, setApplyState] = useState<ApplyState>('idle');
   const [applyError, setApplyError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [serverDown, setServerDown] = useState(false);
   const [error, setError] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -41,6 +34,7 @@ export function UpdateSettings() {
     setApplyError(null);
     setApplyState('applying');
     setProgress(0);
+    setServerDown(false);
     try {
       await api.applyUpdate();
     } catch (err) {
@@ -51,41 +45,46 @@ export function UpdateSettings() {
     }
 
     // Wait for the server to go DOWN then come back UP.
-    // The installer download can take a minute — don't treat the server as
-    // "restarted" until we've actually seen it go offline first.
+    // Progress advances continuously using an asymptotic formula so it never
+    // gets stuck at an arbitrary cap — it just slows down as it approaches 90%.
     setApplyState('waiting');
     let serverWentDown = false;
     let attempts = 0;
-    let downloadTicks = 0;
-    let installTicks = 0;
 
     pollRef.current = setInterval(async () => {
       attempts++;
+      // Each tick: add 4% of the remaining distance to 90% (min 0.3% so it
+      // never fully stops) — this naturally decelerates without a hard cap.
+      setProgress(prev => {
+        if (prev >= 90) return prev;
+        return Math.min(90, prev + Math.max(0.3, (90 - prev) * 0.04));
+      });
+
       try {
         const res = await fetch('/health');
         if (res.ok && serverWentDown) {
-          // Server came back up after going down — real restart completed
+          // Server came back up after going down — restart completed
           clearInterval(pollRef.current!);
           setProgress(100);
           setApplyState('done');
           setTimeout(() => window.location.reload(), 1500);
-        } else if (!serverWentDown) {
-          // Download still in progress — advance 0 → 35%
-          downloadTicks++;
-          setProgress(Math.min(35, Math.round((downloadTicks / DOWNLOAD_TICKS) * 35)));
         }
+        // If server is still up but hasn't gone down yet, download is in progress.
       } catch {
-        // Server is offline — the installer is running
-        serverWentDown = true;
-        installTicks++;
-        // Advance 35 → 90% while server is offline
-        setProgress(Math.min(90, 35 + Math.round((installTicks / INSTALL_TICKS) * 55)));
+        // Server is offline — installer is running
+        if (!serverWentDown) {
+          serverWentDown = true;
+          setServerDown(true);
+          // Jump to at least 50% so the bar reflects real install progress
+          setProgress(prev => Math.max(prev, 50));
+        }
         if (attempts > 150) {
           // ~5 minutes total
           clearInterval(pollRef.current!);
           setApplyError('Server did not restart in time. Please refresh the page manually.');
           setApplyState('idle');
           setProgress(0);
+          setServerDown(false);
         }
       }
     }, 2000);
@@ -131,14 +130,15 @@ export function UpdateSettings() {
             <div>
               <p className="text-sm font-medium text-text-primary">
                 {applyState === 'applying' && 'Starting update…'}
-                {applyState === 'waiting' && (progress < 35 ? 'Downloading update…' : progress < 90 ? 'Installing… TaskMesh will restart automatically' : 'Restarting…')}
+                {applyState === 'waiting' && !serverDown && 'Downloading update…'}
+                {applyState === 'waiting' && serverDown && 'Installing… TaskMesh will restart automatically'}
                 {applyState === 'done' && 'Restarting…'}
               </p>
               <p className="text-xs text-text-muted mt-0.5">
                 {applyState === 'applying' && 'Contacting update server.'}
-                {applyState === 'waiting' && progress < 35 && 'Fetching the latest release from GitHub.'}
-                {applyState === 'waiting' && progress >= 35 && progress < 90 && "Don't close this tab — the page will reload when it's ready."}
-                {(applyState === 'done' || (applyState === 'waiting' && progress >= 90)) && 'Almost there…'}
+                {applyState === 'waiting' && !serverDown && 'Fetching the latest release from GitHub.'}
+                {applyState === 'waiting' && serverDown && "Don't close this tab — the page will reload when it's ready."}
+                {applyState === 'done' && 'Almost there…'}
               </p>
             </div>
           </div>
