@@ -39,22 +39,29 @@ export function UpdateSettings() {
       return;
     }
 
-    // Server will restart — poll /health until it comes back, then reload
+    // Wait for the server to go DOWN then come back UP.
+    // The installer download can take a minute — don't treat the server as
+    // "restarted" until we've actually seen it go offline first.
     setApplyState('waiting');
+    let serverWentDown = false;
     let attempts = 0;
     pollRef.current = setInterval(async () => {
       attempts++;
       try {
         const res = await fetch('/health');
-        if (res.ok) {
+        if (res.ok && serverWentDown) {
+          // Server came back up after going down — real restart completed
           clearInterval(pollRef.current!);
           setApplyState('done');
-          // Brief pause so the user sees "Restarting…" before reload
           setTimeout(() => window.location.reload(), 1500);
         }
+        // If res.ok but serverWentDown is false, the download is still in
+        // progress — keep waiting silently.
       } catch {
-        // Server still down — keep polling (up to ~3 minutes)
-        if (attempts > 90) {
+        // Server is offline — the installer is running
+        serverWentDown = true;
+        if (attempts > 150) {
+          // ~5 minutes total
           clearInterval(pollRef.current!);
           setApplyError('Server did not restart in time. Please refresh the page manually.');
           setApplyState('idle');
