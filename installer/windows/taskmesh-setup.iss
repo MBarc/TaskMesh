@@ -1042,7 +1042,7 @@ begin
   // Stop the running service BEFORE files are overwritten (update scenario).
   // install-services.ps1 also stops it, but that runs after [Files] — stopping
   // here ensures node.exe isn't holding file handles during the copy phase.
-  if CurStep = ssInstFiles then begin
+  if CurStep = ssPreInstall then begin
     NssmExe := ExpandConstant('{app}\nssm\nssm.exe');
     if FileExists(NssmExe) then begin
       Exec(NssmExe, 'stop TaskMesh-Server confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
