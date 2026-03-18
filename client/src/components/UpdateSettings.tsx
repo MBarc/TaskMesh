@@ -57,7 +57,7 @@ export function UpdateSettings() {
       // never fully stops) — this naturally decelerates without a hard cap.
       setProgress(prev => {
         if (prev >= 90) return prev;
-        return Math.min(90, prev + Math.max(0.3, (90 - prev) * 0.04));
+        return Math.min(99, prev + Math.max(0.3, (99 - prev) * 0.04));
       });
 
       try {
@@ -146,10 +146,10 @@ export function UpdateSettings() {
           <div className="w-full bg-primary-500/20 rounded-full h-1.5 overflow-hidden">
             <div
               className="h-full bg-primary-500 rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${progress}%` }}
+              style={{ width: `${Math.round(progress)}%` }}
             />
           </div>
-          <p className="text-xs text-text-muted text-right">{progress}%</p>
+          <p className="text-xs text-text-muted text-right">{Math.round(progress)}%</p>
         </div>
       )}
 
