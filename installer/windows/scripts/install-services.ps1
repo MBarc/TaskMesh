@@ -204,15 +204,15 @@ try {
 Write-Host "Installing TaskMesh-Server service..."
 $q = [char]34
 
+# Unconditionally stop and remove any existing service before reinstalling.
+# nssm status returns SERVICE_RUNNING (4) for a running service, not 0, so a
+# conditional check on exit code == 0 would never fire.  Always stop first.
+Write-Host "Stopping TaskMesh-Server (if running)..."
+Invoke-Nssm @("stop",   "TaskMesh-Server", "confirm") | Out-Null
+Invoke-Nssm @("remove", "TaskMesh-Server", "confirm") | Out-Null
+Start-Sleep -Seconds 3   # Give Windows time to fully release the service name
+
 try {
-    # Remove existing service if present
-    $statusCode = Invoke-Nssm @("status", "TaskMesh-Server")
-    if ($statusCode -eq 0) {
-        Write-Host "Removing existing service..."
-        Invoke-Nssm @("stop",   "TaskMesh-Server", "confirm") | Out-Null
-        Invoke-Nssm @("remove", "TaskMesh-Server", "confirm") | Out-Null
-        Start-Sleep -Seconds 2
-    }
 
     # Install with executable only (no script arg here).
     # AppParameters is written directly to the registry below to preserve the
@@ -278,7 +278,7 @@ try {
     try {
         Invoke-Hidden -Exe "sc.exe" -ExeArgs @("stop",   "TaskMesh-Server") | Out-Null
         Invoke-Hidden -Exe "sc.exe" -ExeArgs @("delete", "TaskMesh-Server") | Out-Null
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds 4
 
         Write-Host "Creating service with sc.exe..."
         $binPath = '"\"' + $node + '\" \"' + $server + '\""'
