@@ -208,7 +208,6 @@ if (Test-Path $prismaLibJs) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.prisma = void 0;
 const client_1 = require("@prisma/client");
-const _base = new client_1.PrismaClient();
 // Auto-serialize / deserialize fields that were Json in PostgreSQL schema
 // but are stored as TEXT (String) in the SQLite schema.
 const _JSON_FIELDS = {
@@ -216,6 +215,9 @@ const _JSON_FIELDS = {
     AIExtraction:            ['extractedTasks'],
     DocumentationSettings:   ['templates', 'customVariables'],
     ArchivedTask:            ['snapshot'],
+    BoardSort:               ['sorts'],
+    CustomTheme:             ['colors'],
+    ApiKey:                  ['scopes'],
 };
 function _fixWrite(model, args) {
     const fields = _JSON_FIELDS[model] || [];
@@ -241,12 +243,17 @@ function _fixRead(model, result) {
     if (Array.isArray(result)) return result.map(fix);
     return fix(result);
 }
-_base.$use(async (params, next) => {
-    _fixWrite(params.model, params.args);
-    const r = await next(params);
-    return _fixRead(params.model, r);
+exports.prisma = new client_1.PrismaClient().$extends({
+    query: {
+        $allModels: {
+            async $allOperations({ model, operation, args, query }) {
+                _fixWrite(model, args);
+                const result = await query(args);
+                return _fixRead(model, result);
+            },
+        },
+    },
 });
-exports.prisma = _base;
 //# sourceMappingURL=prisma.js.map
 '@
     Write-Host "Patched dist/lib/prisma.js with JSON serialization middleware." -ForegroundColor Green
