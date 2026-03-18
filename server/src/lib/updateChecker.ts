@@ -76,15 +76,14 @@ async function fetchGitHubRelease(tag?: string): Promise<GitHubRelease | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'TaskMesh-UpdateChecker',
-    };
-    if (process.env.GITHUB_TOKEN) {
-      headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
-    }
-    const res = await fetch(url, { signal: controller.signal, headers });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'TaskMesh-UpdateChecker',
+      },
+    });
     clearTimeout(timer);
     if (!res.ok) return null;
     return (await res.json()) as GitHubRelease;
