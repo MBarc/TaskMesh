@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Key, Copy, Check, Trash2, Eye, X, AlertTriangle } from 'lucide-react';
+import { Key, Copy, Check, Trash2, Eye, X, AlertTriangle, ChevronDown } from 'lucide-react';
 import * as api from '../api';
 import type { ApiKey, ApiKeyUsageEntry } from '../types';
 
@@ -12,6 +12,97 @@ const EXPIRATION_PRESETS = [
   { label: '1 Year', days: 365 },
 ];
 
+// All 13 scopes
+const ALL_SCOPES = [
+  'boards:read', 'boards:write',
+  'tasks:read', 'tasks:write',
+  'connectors:read', 'connectors:write', 'connectors:sync', 'connectors:push',
+  'ai:extract', 'ai:transcribe', 'ai:reword',
+  'apikeys:read', 'apikeys:write',
+];
+
+// Grouped for the custom checklist
+const SCOPE_GROUPS: { label: string; scopes: { id: string; label: string }[] }[] = [
+  {
+    label: 'Boards & Tasks',
+    scopes: [
+      { id: 'boards:read', label: 'Read boards & columns' },
+      { id: 'boards:write', label: 'Create/edit/delete boards & columns' },
+      { id: 'tasks:read', label: 'Read tasks' },
+      { id: 'tasks:write', label: 'Create/edit/delete tasks' },
+    ],
+  },
+  {
+    label: 'Connectors',
+    scopes: [
+      { id: 'connectors:read', label: 'View connector settings & status' },
+      { id: 'connectors:write', label: 'Save connector settings & disconnect' },
+      { id: 'connectors:sync', label: 'Search & import items' },
+      { id: 'connectors:push', label: 'Push tasks to external systems' },
+    ],
+  },
+  {
+    label: 'AI',
+    scopes: [
+      { id: 'ai:extract', label: 'Extract tasks from notes / transcription jobs' },
+      { id: 'ai:transcribe', label: 'Transcribe video/audio' },
+      { id: 'ai:reword', label: 'Reword, generate sections & themes' },
+    ],
+  },
+  {
+    label: 'Admin',
+    scopes: [
+      { id: 'apikeys:read', label: 'List API keys & view history' },
+      { id: 'apikeys:write', label: 'Create & revoke API keys' },
+    ],
+  },
+];
+
+type ScopePreset = 'full' | 'readonly' | 'automation' | 'developer' | 'custom';
+
+const SCOPE_PRESETS: { id: ScopePreset; label: string; scopes: string[] | null }[] = [
+  { id: 'full', label: 'Full access', scopes: null }, // null = empty array (full compat)
+  { id: 'readonly', label: 'Read only', scopes: ['boards:read', 'tasks:read'] },
+  { id: 'automation', label: 'Automation', scopes: ['tasks:read', 'tasks:write', 'connectors:sync'] },
+  { id: 'developer', label: 'Developer', scopes: ALL_SCOPES.filter(s => s !== 'apikeys:write') },
+  { id: 'custom', label: 'Custom', scopes: [] },
+];
+
+function buildScopeSummary(scopes: string[]): string {
+  if (scopes.length === 0) return 'This key has full access to all endpoints.';
+  const parts: string[] = [];
+  if (scopes.includes('boards:read') || scopes.includes('boards:write')) {
+    const actions = [];
+    if (scopes.includes('boards:read')) actions.push('read');
+    if (scopes.includes('boards:write')) actions.push('write');
+    parts.push(`${actions.join('/')} boards`);
+  }
+  if (scopes.includes('tasks:read') || scopes.includes('tasks:write')) {
+    const actions = [];
+    if (scopes.includes('tasks:read')) actions.push('read');
+    if (scopes.includes('tasks:write')) actions.push('write');
+    parts.push(`${actions.join('/')} tasks`);
+  }
+  if (scopes.includes('connectors:read') || scopes.includes('connectors:write') || scopes.includes('connectors:sync') || scopes.includes('connectors:push')) {
+    const actions = [];
+    if (scopes.includes('connectors:read')) actions.push('view');
+    if (scopes.includes('connectors:write')) actions.push('configure');
+    if (scopes.includes('connectors:sync')) actions.push('sync');
+    if (scopes.includes('connectors:push')) actions.push('push');
+    parts.push(`${actions.join('/')} connectors`);
+  }
+  const aiScopes = [];
+  if (scopes.includes('ai:extract')) aiScopes.push('extract');
+  if (scopes.includes('ai:transcribe')) aiScopes.push('transcribe');
+  if (scopes.includes('ai:reword')) aiScopes.push('reword');
+  if (aiScopes.length > 0) parts.push(`AI: ${aiScopes.join(', ')}`);
+  const adminScopes = [];
+  if (scopes.includes('apikeys:read')) adminScopes.push('read');
+  if (scopes.includes('apikeys:write')) adminScopes.push('manage');
+  if (adminScopes.length > 0) parts.push(`${adminScopes.join('/')} API keys`);
+  return parts.length > 0 ? `This key can: ${parts.join('; ')}.` : 'No permissions selected.';
+}
+
 export function ApiKeySettings() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +112,12 @@ export function ApiKeySettings() {
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Scope state
+  const [scopePreset, setScopePreset] = useState<ScopePreset>('full');
+  const [customScopes, setCustomScopes] = useState<string[]>([]);
+  const [showCustomScopes, setShowCustomScopes] = useState(false);
+
   const [historyKeyId, setHistoryKeyId] = useState<string | null>(null);
   const [historyEntries, setHistoryEntries] = useState<ApiKeyUsageEntry[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -42,6 +139,37 @@ export function ApiKeySettings() {
     fetchKeys();
   }, [fetchKeys]);
 
+  const getEffectiveScopes = (): string[] => {
+    const preset = SCOPE_PRESETS.find(p => p.id === scopePreset);
+    if (!preset) return [];
+    if (scopePreset === 'full') return []; // empty = full access
+    if (scopePreset === 'custom') return customScopes;
+    return preset.scopes!;
+  };
+
+  const handlePresetClick = (id: ScopePreset) => {
+    if (id === 'custom' && scopePreset === 'custom') {
+      // Toggle the checklist when clicking Custom while it's already selected
+      setShowCustomScopes(prev => !prev);
+      return;
+    }
+    setScopePreset(id);
+    setShowCustomScopes(id === 'custom');
+    if (id === 'custom') {
+      // Seed with currently selected preset's scopes
+      const current = SCOPE_PRESETS.find(p => p.id === scopePreset);
+      if (current && current.scopes !== null) {
+        setCustomScopes(current.scopes);
+      }
+    }
+  };
+
+  const toggleCustomScope = (scope: string) => {
+    setCustomScopes(prev =>
+      prev.includes(scope) ? prev.filter(s => s !== scope) : [...prev, scope]
+    );
+  };
+
   const handleCreate = async () => {
     let expiresAt: string;
     if (selectedPreset !== null) {
@@ -56,13 +184,18 @@ export function ApiKeySettings() {
 
     if (!name.trim()) return;
 
+    const scopes = getEffectiveScopes();
+
     setCreating(true);
     try {
-      const result = await api.createApiKey({ name: name.trim(), expiresAt });
+      const result = await api.createApiKey({ name: name.trim(), expiresAt, scopes });
       setNewKey(result.key);
       setName('');
       setSelectedPreset(null);
       setCustomExpiry('');
+      setScopePreset('full');
+      setCustomScopes([]);
+      setShowCustomScopes(false);
       fetchKeys();
     } catch (err) {
       console.error('Failed to create API key:', err);
@@ -117,6 +250,9 @@ export function ApiKeySettings() {
   };
 
   const hasExpiration = selectedPreset !== null || customExpiry;
+  const effectiveScopes = getEffectiveScopes();
+  const scopeSummary = buildScopeSummary(effectiveScopes);
+  const historyKey = keys.find(k => k.id === historyKeyId);
 
   const statusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -127,6 +263,17 @@ export function ApiKeySettings() {
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
         {status}
+      </span>
+    );
+  };
+
+  const scopeBadge = (scopes: string[]) => {
+    if (!scopes || scopes.length === 0) {
+      return <span className="text-xs text-text-secondary">Full access</span>;
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-500/10 text-primary-500">
+        {scopes.length} scope{scopes.length !== 1 ? 's' : ''}
       </span>
     );
   };
@@ -178,6 +325,59 @@ export function ApiKeySettings() {
                 className="px-2 py-1 text-xs rounded border border-border bg-surface text-text-primary focus:outline-none focus:ring-1 focus:ring-primary-500"
               />
             </div>
+          </div>
+
+          {/* Scope Presets */}
+          <div>
+            <label className="block text-xs text-text-secondary mb-1">Permissions</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {SCOPE_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => handlePresetClick(preset.id)}
+                  className={`px-2.5 py-1 text-xs rounded border transition-colors flex items-center gap-1 ${
+                    scopePreset === preset.id
+                      ? 'border-primary-500 bg-primary-500/10 text-primary-500'
+                      : 'border-border text-text-secondary hover:text-text-primary hover:border-border'
+                  }`}
+                >
+                  {preset.label}
+                  {preset.id === 'custom' && <ChevronDown className={`w-3 h-3 transition-transform ${showCustomScopes ? 'rotate-180' : ''}`} />}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom scope checklist */}
+            {showCustomScopes && (
+              <div className="border border-border rounded-lg overflow-hidden mb-2">
+                {SCOPE_GROUPS.map((group, gi) => (
+                  <div key={group.label} className={gi > 0 ? 'border-t border-border' : ''}>
+                    <div className="px-3 py-1.5 bg-surface-tertiary">
+                      <span className="text-xs font-medium text-text-secondary">{group.label}</span>
+                    </div>
+                    <div className="px-3 py-1.5 space-y-1">
+                      {group.scopes.map((scope) => (
+                        <label key={scope.id} className="flex items-center gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={customScopes.includes(scope.id)}
+                            onChange={() => toggleCustomScope(scope.id)}
+                            className="w-3.5 h-3.5 rounded border-border text-primary-500 accent-primary-500"
+                          />
+                          <span className="text-xs text-text-primary group-hover:text-text-primary">
+                            {scope.label}
+                            <span className="ml-1.5 text-text-secondary font-mono">{scope.id}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Scope summary */}
+            <p className="text-xs text-text-secondary italic">{scopeSummary}</p>
           </div>
 
           <button
@@ -235,6 +435,7 @@ export function ApiKeySettings() {
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Name</th>
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Key</th>
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Status</th>
+                  <th className="text-left px-4 py-2 font-medium text-text-secondary">Permissions</th>
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Created</th>
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Expires</th>
                   <th className="text-left px-4 py-2 font-medium text-text-secondary">Usage</th>
@@ -247,6 +448,7 @@ export function ApiKeySettings() {
                     <td className="px-4 py-2 text-text-primary font-medium">{k.name}</td>
                     <td className="px-4 py-2 text-text-secondary font-mono text-xs">{k.maskedKey}</td>
                     <td className="px-4 py-2">{statusBadge(k.status)}</td>
+                    <td className="px-4 py-2">{scopeBadge(k.scopes)}</td>
                     <td className="px-4 py-2 text-text-secondary text-xs">{new Date(k.createdAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-text-secondary text-xs">{new Date(k.expiresAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-text-secondary text-xs">{k.usageCount} requests</td>
@@ -293,6 +495,25 @@ export function ApiKeySettings() {
                 <X className="w-4 h-4 text-text-secondary" />
               </button>
             </div>
+
+            {/* Scopes summary in modal */}
+            {historyKey && (
+              <div className="px-4 py-2.5 border-b border-border bg-surface-secondary">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-text-secondary font-medium">Permissions:</span>
+                  {!historyKey.scopes || historyKey.scopes.length === 0 ? (
+                    <span className="text-xs text-text-secondary">Full access (all scopes)</span>
+                  ) : (
+                    historyKey.scopes.map(s => (
+                      <span key={s} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono bg-primary-500/10 text-primary-500">
+                        {s}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 overflow-auto">
               {historyLoading ? (
                 <div className="px-4 py-8 text-center text-text-secondary text-sm">Loading...</div>

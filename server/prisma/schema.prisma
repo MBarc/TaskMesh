@@ -24,6 +24,7 @@ model Column {
   type       ColumnType
   order                  Int
   requiredForCompletion  Boolean        @default(false)
+  alignment              String         @default("auto")
   options                ColumnOption[]
   cellValues             CellValue[]
   createdAt              DateTime       @default(now())
@@ -140,6 +141,7 @@ model ApiKey {
   id        String       @id @default(uuid())
   name      String
   key       String       @unique
+  scopes    Json         @default("[]")
   status    ApiKeyStatus @default(ACTIVE)
   expiresAt DateTime
   revokedAt DateTime?
@@ -179,6 +181,35 @@ model DocumentDraft {
   @@index([boardId])
 }
 
+model DocumentationFolder {
+  id             String                @id @default(uuid())
+  boardId        String
+  name           String
+  parentFolderId String?
+  parentFolder   DocumentationFolder?  @relation("FolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Cascade)
+  subfolders     DocumentationFolder[] @relation("FolderHierarchy")
+  files          DocumentationFile[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([boardId])
+  @@index([parentFolderId])
+}
+
+model DocumentationFile {
+  id        String               @id @default(uuid())
+  boardId   String
+  name      String
+  content   String               @default("")
+  folderId  String?
+  folder    DocumentationFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([boardId])
+  @@index([folderId])
+}
+
 model ApiKeyUsage {
   id         String   @id @default(uuid())
   apiKeyId   String
@@ -208,8 +239,30 @@ model AppSettings {
   id                   String   @id @default("singleton")
   archiveEnabled       Boolean  @default(false)
   archiveRetentionDays Int      @default(30)
+  telemetryEnabled     Boolean  @default(false)
+  installUUID          String?
+  activeThemeId        String   @default("default-light")
+  autoUpdateEnabled    Boolean  @default(false)
+  lastSeenVersion      String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+model TranscriptionJob {
+  id           String   @id @default(uuid())
+  boardId      String
+  fileName     String
+  fileSize     Int
+  filePath     String
+  status       String   @default("queued")
+  transcript   String?
+  errorMessage String?
+  extractionId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([boardId])
+  @@index([status])
 }
 
 model ArchivedTask {
@@ -222,4 +275,31 @@ model ArchivedTask {
 
   @@index([originalBoardId])
   @@index([archivedAt])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  source      String
+  broadcastId String?  @unique
+  title       String
+  message     String
+  severity    String
+  read        Boolean  @default(false)
+  dismissed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model CustomTheme {
+  id        String   @id @default(uuid())
+  name      String
+  isDark    Boolean
+  colors    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BoardSort {
+  boardId   String   @id
+  sorts     Json     @default("[]")
+  updatedAt DateTime @updatedAt
 }

@@ -66,7 +66,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - AI_SERVICE_URL=${AI_SERVICE_URL}
       - PORT=${PORT}
-      - DOCUMENTATION_PATH=${DOCUMENTATION_PATH}
+      - DOCUMENTATION_PATH=/documentation
     volumes:
       - uploads:/app/uploads
       - ${DOCUMENTATION_PATH:-../documentation}:/documentation

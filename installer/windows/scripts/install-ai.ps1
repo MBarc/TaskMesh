@@ -7,14 +7,39 @@
 #
 # Parameters:
 #   -AppDir      : installation directory  e.g. C:\Program Files\TaskMesh
-#   -OllamaModel : Ollama model to pull    (default qwen2.5:3b)
+#   -OllamaModel : Ollama model to pull    (default: auto-detected via detect-hardware.ps1)
 
 param(
     [Parameter(Mandatory)][string]$AppDir,
-    [string]$OllamaModel = "qwen2.5:3b"
+    [string]$OllamaModel = ""   # empty = auto-detect via detect-hardware.ps1
 )
 
 $ErrorActionPreference = "Stop"
+
+# ── Helpers (defined first so they're available everywhere in the script) ──────
+
+# Run any executable fully hidden: CREATE_NO_WINDOW + redirected stdout/stderr.
+# Prevents console window flashes when this script is launched by ps-launcher.exe
+# (which has no console). Without this, child console apps would call AllocConsole()
+# and create a visible window on Windows 11 + Windows Terminal.
+function Invoke-Hidden {
+    param([string]$Exe, [string[]]$ExeArgs)
+    $argStr = ($ExeArgs | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + $_.Replace('"', '\"') + '"' } else { $_ }
+    }) -join ' '
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($Exe)
+    $psi.Arguments              = $argStr
+    $psi.CreateNoWindow         = $true
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $p   = [System.Diagnostics.Process]::Start($psi)
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $p.WaitForExit()
+    $out = ($outTask.GetAwaiter().GetResult() + $errTask.GetAwaiter().GetResult()).Trim()
+    return [PSCustomObject]@{ Output = $out; ExitCode = $p.ExitCode }
+}
 
 $nssm   = Join-Path $AppDir "nssm\nssm.exe"
 $logDir = Join-Path $AppDir "logs"
@@ -41,24 +66,26 @@ function Install-NssmService {
         [string]$WorkDir
     )
 
-    $existing = & $nssm status $Name 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $r = Invoke-Hidden -Exe $nssm -ExeArgs @("status", $Name)
+    if ($r.ExitCode -eq 0) {
         Write-Host "Removing existing service: $Name"
-        & $nssm stop   $Name confirm 2>&1 | Out-Null
-        & $nssm remove $Name confirm 2>&1 | Out-Null
+        Invoke-Hidden -Exe $nssm -ExeArgs @("stop",   $Name, "confirm") | Out-Null
+        Invoke-Hidden -Exe $nssm -ExeArgs @("remove", $Name, "confirm") | Out-Null
     }
 
     Write-Host "Installing service: $Name"
-    & $nssm install $Name $Executable $Arguments
+    $installArgs = @("install", $Name, $Executable)
+    if ($Arguments) { $installArgs += $Arguments }
+    Invoke-Hidden -Exe $nssm -ExeArgs $installArgs | Out-Null
 
-    & $nssm set $Name AppDirectory  $WorkDir
-    & $nssm set $Name DisplayName   "TaskMesh - $Name"
-    & $nssm set $Name Description   "TaskMesh component: $Name"
-    & $nssm set $Name Start         SERVICE_AUTO_START
-    & $nssm set $Name AppStdout     (Join-Path $logDir "$Name-stdout.log")
-    & $nssm set $Name AppStderr     (Join-Path $logDir "$Name-stderr.log")
-    & $nssm set $Name AppRotateFiles 1
-    & $nssm set $Name AppRotateBytes 5242880
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "AppDirectory",   $WorkDir)            | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "DisplayName",    "TaskMesh - $Name")  | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "Description",    "TaskMesh component: $Name") | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "Start",          "SERVICE_AUTO_START") | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "AppStdout",      (Join-Path $logDir "$Name-stdout.log")) | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "AppStderr",      (Join-Path $logDir "$Name-stderr.log")) | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "AppRotateFiles", "1")       | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("set", $Name, "AppRotateBytes", "5242880") | Out-Null
 
     if ($EnvVars.Count -gt 0) {
         $envArray   = $EnvVars.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
@@ -68,6 +95,37 @@ function Install-NssmService {
             -Value $envArray -Type MultiString
     }
 }
+
+# ── Step 0: Detect hardware and select Ollama model ──────────────
+Write-Step "Detecting hardware for AI model selection"
+
+$scriptDir     = Split-Path -Parent $MyInvocation.MyCommand.Path
+$detectScript  = Join-Path $scriptDir "detect-hardware.ps1"
+
+if ($OllamaModel -eq "") {
+    if (Test-Path $detectScript) {
+        $r = Invoke-Hidden -Exe "powershell.exe" -ExeArgs @("-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $detectScript)
+        $OllamaModel = $r.Output.Trim()
+        Write-Host "Hardware detection selected model: $OllamaModel"
+    } else {
+        Write-Warning "detect-hardware.ps1 not found — using default: llama3.1:8b"
+        $OllamaModel = "llama3.1:8b"
+    }
+} else {
+    Write-Host "Using specified model: $OllamaModel"
+}
+
+if ($OllamaModel -eq "disabled") {
+    Write-Host ""
+    Write-Host "WARNING: Your system has less than 8 GB of RAM." -ForegroundColor Yellow
+    Write-Host "         AI features require at least 8 GB RAM and will not be installed." -ForegroundColor Yellow
+    Write-Host "         You can enable them later by upgrading your hardware and" -ForegroundColor Yellow
+    Write-Host "         re-running the AI setup from the TaskMesh settings panel." -ForegroundColor Yellow
+    Write-Host ""
+    exit 0
+}
+
+Write-Host "Selected model: $OllamaModel" -ForegroundColor Cyan
 
 # ── Step 1: Find or download Ollama ─────────────────────────────
 Write-Step "Setting up Ollama AI engine"
@@ -89,7 +147,7 @@ if (-not $ollamaExe) {
         -OutFile $ollamaSetup -UseBasicParsing -TimeoutSec 600
 
     Write-Host "Installing Ollama..."
-    Start-Process -FilePath $ollamaSetup -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
+    Invoke-Hidden -Exe $ollamaSetup -ExeArgs @("/VERYSILENT", "/NORESTART") | Out-Null
 
     foreach ($c in $candidates) {
         if (Test-Path $c) { $ollamaExe = $c; break }
@@ -111,28 +169,28 @@ if (-not $ollamaExe) {
 # ── Step 2: Register Ollama as a Windows Service ─────────────────
 Write-Step "Registering Ollama service"
 
-$existing = & $nssm status "TaskMesh-Ollama" 2>&1
-if ($LASTEXITCODE -eq 0) {
+$r = Invoke-Hidden -Exe $nssm -ExeArgs @("status", "TaskMesh-Ollama")
+if ($r.ExitCode -eq 0) {
     Write-Host "Removing existing TaskMesh-Ollama service..."
-    & $nssm stop   "TaskMesh-Ollama" confirm 2>&1 | Out-Null
-    & $nssm remove "TaskMesh-Ollama" confirm 2>&1 | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("stop",   "TaskMesh-Ollama", "confirm") | Out-Null
+    Invoke-Hidden -Exe $nssm -ExeArgs @("remove", "TaskMesh-Ollama", "confirm") | Out-Null
 }
 
-& $nssm install "TaskMesh-Ollama" $ollamaExe "serve"
-& $nssm set "TaskMesh-Ollama" DisplayName    "TaskMesh - Ollama LLM"
-& $nssm set "TaskMesh-Ollama" Description    "Local LLM backend for TaskMesh AI features"
-& $nssm set "TaskMesh-Ollama" Start           SERVICE_AUTO_START
-& $nssm set "TaskMesh-Ollama" AppStdout       (Join-Path $logDir "TaskMesh-Ollama-stdout.log")
-& $nssm set "TaskMesh-Ollama" AppStderr       (Join-Path $logDir "TaskMesh-Ollama-stderr.log")
-& $nssm set "TaskMesh-Ollama" AppRotateFiles  1
-& $nssm set "TaskMesh-Ollama" AppRotateBytes  5242880
+Invoke-Hidden -Exe $nssm -ExeArgs @("install", "TaskMesh-Ollama", $ollamaExe, "serve")      | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "DisplayName",    "TaskMesh - Ollama LLM")              | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "Description",    "Local LLM backend for TaskMesh AI features") | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "Start",          "SERVICE_AUTO_START")                 | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "AppStdout",      (Join-Path $logDir "TaskMesh-Ollama-stdout.log")) | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "AppStderr",      (Join-Path $logDir "TaskMesh-Ollama-stderr.log")) | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "AppRotateFiles", "1")        | Out-Null
+Invoke-Hidden -Exe $nssm -ExeArgs @("set", "TaskMesh-Ollama", "AppRotateBytes", "5242880")  | Out-Null
 
 $ollamaRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\TaskMesh-Ollama\Parameters"
 if (-not (Test-Path $ollamaRegPath)) { New-Item -Path $ollamaRegPath -Force | Out-Null }
 Set-ItemProperty -Path $ollamaRegPath -Name "AppEnvironmentExtra" `
     -Value @("OLLAMA_HOST=127.0.0.1:11434") -Type MultiString
 
-& $nssm start "TaskMesh-Ollama"
+Invoke-Hidden -Exe $nssm -ExeArgs @("start", "TaskMesh-Ollama") | Out-Null
 Write-Host "Ollama service started." -ForegroundColor Green
 
 # ── Step 3: Wait for Ollama to be ready ──────────────────────────
@@ -153,20 +211,43 @@ if (-not $ready) {
 }
 
 # ── Step 4: Pull AI language model ───────────────────────────────
+# Tier order for fallback on pull failure (highest to lowest).
+$allTiers   = @("qwen2.5:32b", "qwen2.5:14b", "llama3.1:8b", "llama3.2:3b")
+$modelReady = $false
+
 Write-Step "Downloading AI language model: $OllamaModel"
-Write-Host "(This is approximately 2 GB — please wait)" -ForegroundColor Yellow
+Write-Host "(This may be 2–20 GB depending on the model — please wait)" -ForegroundColor Yellow
 Write-Host ""
 
-$modelReady = $false
-& $ollamaExe pull $OllamaModel
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Model pull failed (exit code $LASTEXITCODE)."
-    Write-Warning "AI language features will not work until the model is downloaded."
-    Write-Warning "You can retry later by running: ollama pull $OllamaModel"
-} else {
+$pullResult = Invoke-Hidden -Exe $ollamaExe -ExeArgs @("pull", $OllamaModel)
+if ($pullResult.ExitCode -eq 0) {
     Write-Host ""
     Write-Host "Model '$OllamaModel' ready." -ForegroundColor Green
     $modelReady = $true
+} else {
+    Write-Warning "Model pull failed for '$OllamaModel' (exit code $($pullResult.ExitCode))."
+
+    # Find this tier in the list and try the next one down.
+    $tierIdx = [array]::IndexOf($allTiers, $OllamaModel)
+    if ($tierIdx -ge 0 -and $tierIdx -lt ($allTiers.Length - 1)) {
+        $fallback = $allTiers[$tierIdx + 1]
+        Write-Host "Retrying with fallback model: $fallback" -ForegroundColor Yellow
+        Write-Host ""
+        $fallbackResult = Invoke-Hidden -Exe $ollamaExe -ExeArgs @("pull", $fallback)
+        if ($fallbackResult.ExitCode -eq 0) {
+            $OllamaModel = $fallback
+            Write-Host ""
+            Write-Host "Model '$OllamaModel' ready (fallback)." -ForegroundColor Green
+            $modelReady = $true
+        } else {
+            Write-Warning "Fallback model pull also failed (exit code $($fallbackResult.ExitCode))."
+        }
+    }
+
+    if (-not $modelReady) {
+        Write-Warning "AI language features will not work until a model is downloaded."
+        Write-Warning "Retry later by running: ollama pull $OllamaModel"
+    }
 }
 
 # ── Step 5: Install TaskMesh-AI service ──────────────────────────
@@ -199,7 +280,7 @@ if (-not (Test-Path $aiExe)) {
         -EnvVars    $aiEnv `
         -WorkDir    (Join-Path $AppDir "ai-service")
 
-    & $nssm start "TaskMesh-AI"
+    Invoke-Hidden -Exe $nssm -ExeArgs @("start", "TaskMesh-AI") | Out-Null
     Write-Host "TaskMesh-AI service started." -ForegroundColor Green
     Write-Host "(Whisper transcription model downloads on first use)"
 }

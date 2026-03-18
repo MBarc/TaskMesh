@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Theme, ThemeId } from '../types';
 import { builtInThemes } from '../themes/themeDefinitions';
 import type { ThemeDefinition } from '../themes/themeDefinitions';
 import { injectAllThemeStyles } from '../themes/themeCSS';
+import * as api from '../api';
 
 // Derive the backward-compatible Theme[] array from built-in definitions
 export const themes: Theme[] = builtInThemes.map((t) => ({
@@ -17,64 +17,63 @@ function injectAll(customThemes: ThemeDefinition[]) {
   injectAllThemeStyles([...builtInThemes, ...customThemes]);
 }
 
+function toTheme(t: ThemeDefinition): Theme {
+  return { id: t.id, name: t.name, isDark: t.isDark, color: t.colors['primary-500'] };
+}
+
 interface ThemeState {
   themeId: ThemeId;
   customThemes: ThemeDefinition[];
   setTheme: (themeId: ThemeId) => void;
   currentTheme: () => Theme;
   allThemes: () => Theme[];
-  addCustomTheme: (def: ThemeDefinition) => void;
-  removeCustomTheme: (id: string) => void;
-  saveStudioTheme: (def: ThemeDefinition, apply: boolean) => void;
+  initialize: () => Promise<void>;
+  addCustomTheme: (def: ThemeDefinition) => Promise<void>;
+  removeCustomTheme: (id: string) => Promise<void>;
+  saveStudioTheme: (def: ThemeDefinition, apply: boolean) => Promise<void>;
   findCustomThemeByName: (name: string) => ThemeDefinition | undefined;
-  overwriteCustomTheme: (existingId: string, def: ThemeDefinition, apply: boolean) => void;
+  overwriteCustomTheme: (existingId: string, def: ThemeDefinition, apply: boolean) => Promise<void>;
   previewTheme: (def: ThemeDefinition) => void;
   clearPreview: () => void;
 }
 
-export const useThemeStore = create<ThemeState>()(
-  persist(
-    (set, get) => ({
+export const useThemeStore = create<ThemeState>()((set, get) => ({
       themeId: 'default-light',
       customThemes: [],
       setTheme: (themeId) => {
         set({ themeId });
         document.documentElement.setAttribute('data-theme', themeId);
+        api.updateAppSettings({ activeThemeId: themeId }).catch(() => {});
       },
       currentTheme: () => {
         const { themeId, customThemes } = get();
-        const all = [
-          ...themes,
-          ...customThemes.map((t) => ({
-            id: t.id,
-            name: t.name,
-            isDark: t.isDark,
-            color: t.colors['primary-500'],
-          })),
-        ];
+        const all = [...themes, ...customThemes.map(toTheme)];
         return all.find((t) => t.id === themeId) || themes[0];
       },
       allThemes: () => {
         const { customThemes } = get();
-        return [
-          ...themes,
-          ...customThemes.map((t) => ({
-            id: t.id,
-            name: t.name,
-            isDark: t.isDark,
-            color: t.colors['primary-500'],
-          })),
-        ];
+        return [...themes, ...customThemes.map(toTheme)];
       },
-      addCustomTheme: (def) => {
-        const id = `custom-${Date.now()}`;
-        const themed: ThemeDefinition = { ...def, id };
-        const updated = [...get().customThemes, themed];
-        set({ customThemes: updated, themeId: id });
+      initialize: async () => {
+        const [fetched, settings] = await Promise.all([
+          api.getCustomThemes(),
+          api.getAppSettings(),
+        ]);
+        const themeId = (settings.activeThemeId || 'default-light') as ThemeId;
+        set({ customThemes: fetched, themeId });
+        injectAll(fetched);
+        document.documentElement.setAttribute('data-theme', themeId);
+      },
+      addCustomTheme: async (def) => {
+        const created = await api.createCustomTheme(def);
+        const updated = [...get().customThemes, created];
+        set({ customThemes: updated, themeId: created.id });
         injectAll(updated);
-        document.documentElement.setAttribute('data-theme', id);
+        document.documentElement.setAttribute('data-theme', created.id);
+        api.updateAppSettings({ activeThemeId: created.id }).catch(() => {});
       },
-      removeCustomTheme: (id) => {
+      removeCustomTheme: async (id) => {
+        await api.deleteCustomTheme(id);
         const updated = get().customThemes.filter((t) => t.id !== id);
         const needsFallback = get().themeId === id;
         set({
@@ -84,16 +83,17 @@ export const useThemeStore = create<ThemeState>()(
         injectAll(updated);
         if (needsFallback) {
           document.documentElement.setAttribute('data-theme', 'default-light');
+          api.updateAppSettings({ activeThemeId: 'default-light' }).catch(() => {});
         }
       },
-      saveStudioTheme: (def, apply) => {
-        const id = `custom-${Date.now()}`;
-        const themed: ThemeDefinition = { ...def, id };
-        const updated = [...get().customThemes, themed];
-        set({ customThemes: updated, ...(apply ? { themeId: id } : {}) });
+      saveStudioTheme: async (def, apply) => {
+        const created = await api.createCustomTheme(def);
+        const updated = [...get().customThemes, created];
+        set({ customThemes: updated, ...(apply ? { themeId: created.id } : {}) });
         injectAll(updated);
         if (apply) {
-          document.documentElement.setAttribute('data-theme', id);
+          document.documentElement.setAttribute('data-theme', created.id);
+          api.updateAppSettings({ activeThemeId: created.id }).catch(() => {});
         }
       },
       findCustomThemeByName: (name) => {
@@ -101,14 +101,16 @@ export const useThemeStore = create<ThemeState>()(
           (t) => t.name.toLowerCase() === name.toLowerCase()
         );
       },
-      overwriteCustomTheme: (existingId, def, apply) => {
+      overwriteCustomTheme: async (existingId, def, apply) => {
+        const updated_def = await api.updateCustomTheme(existingId, def);
         const updated = get().customThemes.map((t) =>
-          t.id === existingId ? { ...def, id: existingId } : t
+          t.id === existingId ? updated_def : t
         );
         set({ customThemes: updated, ...(apply ? { themeId: existingId } : {}) });
         injectAll(updated);
         if (apply) {
           document.documentElement.setAttribute('data-theme', existingId);
+          api.updateAppSettings({ activeThemeId: existingId }).catch(() => {});
         }
       },
       previewTheme: (def) => {
@@ -122,15 +124,4 @@ export const useThemeStore = create<ThemeState>()(
         injectAll([...builtInThemes, ...customThemes]);
         document.documentElement.setAttribute('data-theme', themeId);
       },
-    }),
-    {
-      name: 'theme-storage',
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          injectAll(state.customThemes);
-          document.documentElement.setAttribute('data-theme', state.themeId);
-        }
-      },
-    }
-  )
-);
+    }));

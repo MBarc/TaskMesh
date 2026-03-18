@@ -189,8 +189,8 @@ class RewordTextResponse(BaseModel):
 
 class GenerateSectionRequest(BaseModel):
     section_name: str
-    template_context: Optional[str] = ""
-    task_context: Optional[str] = ""
+    row_context: Optional[str] = ""
+    document_context: Optional[str] = ""
 
 
 class GenerateSectionResponse(BaseModel):
@@ -218,8 +218,8 @@ async def generate_section(request: GenerateSectionRequest):
     try:
         content = await generate_section_content(
             section_name=request.section_name,
-            template_context=request.template_context or "",
-            task_context=request.task_context or "",
+            row_context=request.row_context or "",
+            document_context=request.document_context or "",
         )
         return GenerateSectionResponse(content=content)
     except Exception as e:

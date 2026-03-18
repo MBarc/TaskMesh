@@ -449,29 +449,31 @@ async def reword_text_content(text: str, context: str = "") -> str:
             raise Exception(f"Failed to reword text: {str(e)}")
 
 
-GENERATE_SECTION_PROMPT = """You are a technical documentation writer. Generate content for a document section.
+GENERATE_SECTION_PROMPT = """You are a technical documentation writer. Generate content for a specific section of a document.
 
-Section name: {section_name}
+Section heading: {section_name}
 
-{template_section}
+Task and row context:
+---
+{row_context}
+---
 
-Task context:
-{task_context}
-
-Write clear, well-structured markdown content for this section. Use appropriate formatting (headers, lists, code blocks) as needed.
+{document_context_section}Write clear, concise markdown content for this section based on the context above.
+Use appropriate formatting (bullet lists, numbered steps, code blocks) where it helps.
+Do NOT repeat the heading — write only the body content that goes beneath it.
 Output ONLY the section content in markdown, no preamble or explanation."""
 
 
-async def generate_section_content(section_name: str, template_context: str = "", task_context: str = "") -> str:
+async def generate_section_content(section_name: str, row_context: str = "", document_context: str = "") -> str:
     """Generate content for a document section using Ollama LLM."""
-    template_section = ""
-    if template_context:
-        template_section = f"Template/instructions:\n{template_context}\n"
+    document_context_section = ""
+    if document_context.strip():
+        document_context_section = f"Existing document for context:\n---\n{document_context}\n---\n\n"
 
     prompt = GENERATE_SECTION_PROMPT.format(
         section_name=section_name,
-        template_section=template_section,
-        task_context=task_context,
+        row_context=row_context or "No additional context provided.",
+        document_context_section=document_context_section,
     )
 
     async with httpx.AsyncClient(timeout=300.0) as client:

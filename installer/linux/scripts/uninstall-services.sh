@@ -42,6 +42,12 @@ systemctl daemon-reload
 rm -f /etc/taskmesh/config
 rmdir /etc/taskmesh 2>/dev/null || true
 
+# Remove taskmesh.localhost from the OS hosts file
+if grep -q "taskmesh\.localhost" /etc/hosts 2>/dev/null; then
+    sed -i '/taskmesh\.localhost/d' /etc/hosts
+    echo "Removed taskmesh.localhost from /etc/hosts."
+fi
+
 # ── Remove desktop entry and CLI symlink ─────────────────────────────────────
 rm -f /usr/share/applications/taskmesh.desktop
 rm -f /usr/local/bin/taskmesh

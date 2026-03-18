@@ -45,7 +45,7 @@ export function CustomThemeImport({ onClose }: CustomThemeImportProps) {
   const [error, setError] = useState<string | null>(null);
   const addCustomTheme = useThemeStore((s) => s.addCustomTheme);
 
-  const handleImport = () => {
+  const handleImport = async () => {
     setError(null);
 
     let parsed: unknown;
@@ -63,13 +63,17 @@ export function CustomThemeImport({ onClose }: CustomThemeImportProps) {
     }
 
     const obj = parsed as { name: string; isDark: boolean; colors: ThemeColorMap };
-    addCustomTheme({
-      id: '', // addCustomTheme will assign the real ID
-      name: obj.name.trim(),
-      isDark: obj.isDark,
-      colors: obj.colors,
-    });
-    onClose();
+    try {
+      await addCustomTheme({
+        id: '',
+        name: obj.name.trim(),
+        isDark: obj.isDark,
+        colors: obj.colors,
+      });
+      onClose();
+    } catch {
+      setError('Failed to save theme. Please try again.');
+    }
   };
 
   return (

@@ -106,25 +106,29 @@ Inno Setup controls the surrounding chrome on standard wizard pages; we cannot f
 
 ## Celebration / finish page
 
-The celebration page (`CelebrationPage`) is a full custom `TWizardPage` with a deep-indigo `TPanel` covering the entire surface. Layout rules:
+The celebration page (`CelebrationPage`) is a full custom `TWizardPage` with a white `TPanel` covering the entire surface.
+
+**Important rendering constraint:** Windows visual styles on Win10/11 prevent `TPanel.Color` from painting a custom dark background — the system theme overrides it and renders white. Use white panel + dark brand text colours instead. The page header (banner BMP) carries the indigo brand colour above the surface.
 
 ```
-┌─────────────────────────────────────────────────────┐  ← $4B1B1E bg (brand-950)
+┌─────────────────────────────────────────────────────┐  ← $FFFFFF bg (white panel)
 │                                                     │
-│  Buzz toward done  ✓                 ← 18pt bold white ($FFFFFF), top: 20
+│  You're all set  ✓           ← 20pt bold brand-700 ($CA3843), top: 16
+│  Buzz toward done.           ← 10pt brand-500 ($F16663), top: 48
 │                                                     │
-│  ✓  Server running on http://localhost:PORT         │
-│  ✓  Database initialized                            │  ← 11pt brand-300 ($FCB4A5)
-│  ✓  Shortcuts created                               │    top: 70 / 96 / 122
+│  ✓  TaskMesh is up and running     ← 11pt brand-900 ($812E31), top: 86
+│     http://taskmesh.localhost:PORT ← 9pt brand-600 ($E5464F), top: 108, left: 40
+│  ✓  Shortcut added to your Start Menu ← 11pt brand-900, top: 132
 │                                                     │
-│  Click "Finish" to launch TaskMesh in your browser. │  ← 9pt brand-200 ($FED2C7)
-│                                                     │    top: 165
+│  Open it again anytime from your Start Menu…        ← 9pt brand-700 ($CA3843), top: 164
+│  ☑ Open TaskMesh in my browser   ← 10pt brand-900, top: 192
 └─────────────────────────────────────────────────────┘
 ```
 
-- All labels left-aligned, `Left := 24`
+- All labels left-aligned, `Left := 24` (URL sub-line: `Left := 40`)
 - `AutoSize := True` on every label
-- The port in "Server running on…" must be set dynamically in `CurStepChanged` at `ssPostInstall`, not hardcoded
+- The port URL must be set dynamically in `CurStepChanged` at `ssPostInstall`
+- Finish button renamed to **"Launch TaskMesh"** via `CurPageChanged`
 
 ---
 

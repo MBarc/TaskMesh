@@ -9,12 +9,24 @@ import { taskRoutes } from './routes/tasks.js';
 import { aiRoutes } from './routes/ai.js';
 import { apiKeyRoutes } from './routes/apikeys.js';
 import { archiveRoutes } from './routes/archive.js';
+import { exportRoutes } from './routes/export.js';
+import { notificationRoutes } from './routes/notifications.js';
+import { searchRoutes } from './routes/search.js';
+import documentationRouter from './routes/documentation.js';
 import { apiKeyAuth } from './lib/apiKeyAuth.js';
 import { swaggerSpec } from './lib/swagger.js';
 import { startEmailPoller } from './lib/emailPoller.js';
 import { startArchiveCleaner } from './lib/archiveCleaner.js';
+import { startNotificationPoller } from './lib/notificationPoller.js';
+import { startUpdateChecker } from './lib/updateChecker.js';
 import { registerAllConnectors } from './connectors/registry.js';
 import { connectorImportRouter } from './routes/connectorImport.js';
+import { settingsRoutes } from './routes/settings.js';
+import { updateRoutes } from './routes/updates.js';
+import { telemetryRoutes } from './routes/telemetry.js';
+import { themeRoutes } from './routes/themes.js';
+import { sortRoutes } from './routes/sorts.js';
+import { capture, shutdown } from './lib/telemetry.js';
 import { prisma } from './lib/prisma.js';
 
 const app = express();
@@ -36,12 +48,45 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/archive', archiveRoutes);
+app.use('/api/export', exportRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/search', searchRoutes);
 app.use('/api/connectors/import', connectorImportRouter);
+app.use('/api/documentation', documentationRouter);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/updates', updateRoutes);
+app.use('/api/telemetry', telemetryRoutes);
+app.use('/api/themes', themeRoutes);
+app.use('/api/sorts', sortRoutes);
+
+// On a fresh install the telemetry preference chosen during setup is written to
+// TASKMESH_TELEMETRY_ENABLED by install-services.ps1.  We honour it exactly once:
+// if no AppSettings row exists yet (first ever boot), we create it with the
+// installer's choice.  On every subsequent boot the row already exists, so user
+// changes made via Settings → Privacy are never overwritten.
+async function initializeTelemetryFromInstaller(): Promise<void> {
+  try {
+    const envPref = process.env.TASKMESH_TELEMETRY_ENABLED;
+    if (envPref !== '1') return; // off by default — only act when explicitly opted in
+
+    const existing = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+    if (existing) return; // already initialized — respect whatever the user set
+
+    await prisma.appSettings.create({
+      data: { id: 'singleton', telemetryEnabled: true },
+    });
+    console.log('Telemetry enabled via installer preference.');
+  } catch {
+    // Non-critical — silently ignore
+  }
+}
 
 async function start() {
   // Connector SDK — auto-discover and register connectors
   const manifests = await registerAllConnectors(app, prisma);
   console.log(`Connector SDK: ${manifests.length} connector(s) registered`);
+
+  await initializeTelemetryFromInstaller();
 
   // Health check
   app.get('/health', (req, res) => {
@@ -71,6 +116,14 @@ async function start() {
     console.log(`Server running on port ${PORT}`);
     startEmailPoller();
     startArchiveCleaner();
+    startNotificationPoller();
+    startUpdateChecker();
+    capture('app_started', { version: process.env.npm_package_version ?? 'unknown' });
+  });
+
+  process.on('SIGTERM', async () => {
+    await shutdown();
+    process.exit(0);
   });
 }
 

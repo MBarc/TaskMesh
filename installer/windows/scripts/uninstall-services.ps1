@@ -62,6 +62,18 @@ $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 Remove-ItemProperty -Path $runKey -Name "TaskMesh" -ErrorAction SilentlyContinue
 Write-Host "Removed startup entry."
 
+# Remove taskmesh.localhost from the OS hosts file
+$hostsFile = "C:\Windows\System32\drivers\etc\hosts"
+if (Test-Path $hostsFile) {
+    $lines = Get-Content $hostsFile -ErrorAction SilentlyContinue
+    if ($lines -match "taskmesh\.localhost") {
+        $newLines = $lines | Where-Object { $_ -notmatch "taskmesh\.localhost" }
+        Set-Content $hostsFile $newLines
+        Log "Removed taskmesh.localhost from hosts file."
+        Write-Host "Removed taskmesh.localhost from hosts file."
+    }
+}
+
 Write-Host "TaskMesh services removed."
 
 # Remove the +r flag set during install for the desktop.ini folder icon.

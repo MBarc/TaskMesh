@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Board, Column, ColumnType, Platform, EmailCellValue } from '../types';
 import * as api from '../api';
 import { connectorAction } from '../api/connectors';
+import { useUiPrefsStore } from './uiPrefsStore';
 
 interface TranscriptOverlayState {
   extractionId: string;
@@ -97,6 +98,14 @@ interface BoardState {
   openDocViewerModal: (fileName: string, filePath: string) => void;
   closeDocViewerModal: () => void;
 
+  // Search highlight
+  highlightedTaskId: string | null;
+  setHighlightedTaskId: (id: string | null) => void;
+
+  // Favorite board notice
+  favoriteBoardDeletedNotice: boolean;
+  clearFavoriteBoardDeletedNotice: () => void;
+
   // Board actions
   fetchBoards: () => Promise<void>;
   fetchBoard: (id: string) => Promise<void>;
@@ -106,7 +115,7 @@ interface BoardState {
 
   // Column actions
   addColumn: (name: string, type: ColumnType, options?: { value: string; color?: string }[]) => Promise<void>;
-  updateColumn: (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean) => Promise<void>;
+  updateColumn: (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => Promise<void>;
   deleteColumn: (columnId: string) => Promise<void>;
   reorderColumns: (columnIds: string[]) => Promise<void>;
   ensureSourceColumn: () => Promise<Column | null>;
@@ -137,6 +146,14 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   currentBoard: null,
   loading: false,
   error: null,
+
+  // Search highlight
+  highlightedTaskId: null,
+  setHighlightedTaskId: (id) => set({ highlightedTaskId: id }),
+
+  // Favorite board notice
+  favoriteBoardDeletedNotice: false,
+  clearFavoriteBoardDeletedNotice: () => set({ favoriteBoardDeletedNotice: false }),
 
   // Archive view
   isArchiveView: false,
@@ -235,9 +252,25 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     try {
       const boards = await api.getBoards();
       set({ boards, loading: false });
-      // Auto-select previously selected board on refresh
+
+      if (get().currentBoard) return;
+
+      const { favoriteBoardId, setFavoriteBoardId } = useUiPrefsStore.getState();
+
+      // If a favorite is set, prefer it — but clear it if the board was deleted
+      if (favoriteBoardId) {
+        if (boards.some(b => b.id === favoriteBoardId)) {
+          get().fetchBoard(favoriteBoardId);
+          return;
+        } else {
+          setFavoriteBoardId(null);
+          set({ favoriteBoardDeletedNotice: true });
+        }
+      }
+
+      // Fall back to previously selected board
       const savedBoardId = localStorage.getItem('taskmesh_currentBoardId');
-      if (savedBoardId && !get().currentBoard && boards.some(b => b.id === savedBoardId)) {
+      if (savedBoardId && boards.some(b => b.id === savedBoardId)) {
         get().fetchBoard(savedBoardId);
       }
     } catch (error) {
@@ -291,6 +324,10 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       if (localStorage.getItem('taskmesh_currentBoardId') === id) {
         localStorage.removeItem('taskmesh_currentBoardId');
       }
+      const { favoriteBoardId, setFavoriteBoardId } = useUiPrefsStore.getState();
+      if (favoriteBoardId === id) {
+        setFavoriteBoardId(null);
+      }
       set((state) => ({
         boards: state.boards.filter(b => b.id !== id),
         currentBoard: state.currentBoard?.id === id ? null : state.currentBoard,
@@ -316,9 +353,9 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }
   },
 
-  updateColumn: async (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean) => {
+  updateColumn: async (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => {
     try {
-      const updatedColumn = await api.updateColumn(columnId, name, options, requiredForCompletion);
+      const updatedColumn = await api.updateColumn(columnId, name, options, requiredForCompletion, alignment);
       set((state) => ({
         currentBoard: state.currentBoard
           ? {

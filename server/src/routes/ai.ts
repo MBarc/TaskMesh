@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import { requireScope } from '../lib/apiKeyAuth.js';
+import { capture } from '../lib/telemetry.js';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { prisma } from '../lib/prisma.js';
 import { detectPlatform } from '../lib/detectPlatform.js';
 
@@ -47,6 +50,90 @@ const upload = multer({
   },
 });
 
+// Background processor for transcription jobs
+async function processTranscriptionJob(jobId: string): Promise<void> {
+  try {
+    // 1. Fetch job; bail if cancelled
+    const job = await prisma.transcriptionJob.findUnique({ where: { id: jobId } });
+    if (!job || job.status === 'cancelled') return;
+
+    // 2. Update status → transcribing
+    await prisma.transcriptionJob.update({
+      where: { id: jobId },
+      data: { status: 'transcribing' },
+    });
+
+    // 3. Call AI service for transcription (long-blocking)
+    const transcribeResponse = await fetch(`${AI_SERVICE_URL}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filepath: job.filePath }),
+    });
+
+    if (!transcribeResponse.ok) {
+      const err = await transcribeResponse.text();
+      throw new Error(`Transcription failed: ${err}`);
+    }
+
+    const transcribeData = await transcribeResponse.json() as TranscribeResponse;
+    const transcript = transcribeData.transcript;
+
+    // 4. Re-check for cancellation before extraction
+    const jobCheck = await prisma.transcriptionJob.findUnique({ where: { id: jobId } });
+    if (!jobCheck || jobCheck.status === 'cancelled') {
+      // Clean up file
+      try { fs.unlinkSync(job.filePath); } catch { /* ignore */ }
+      return;
+    }
+
+    // 5. Update transcript, status → extracting
+    await prisma.transcriptionJob.update({
+      where: { id: jobId },
+      data: { transcript, status: 'extracting' },
+    });
+
+    // 6. Extract tasks from transcript
+    const extractResponse = await fetch(`${AI_SERVICE_URL}/extract-tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: transcript }),
+    });
+
+    if (!extractResponse.ok) {
+      const err = await extractResponse.text();
+      throw new Error(`Task extraction failed: ${err}`);
+    }
+
+    const extractData = await extractResponse.json() as ExtractTasksResponse;
+
+    // 7. Create AIExtraction record, update job → done
+    const extraction = await prisma.aIExtraction.create({
+      data: {
+        boardId: job.boardId,
+        sourceType: 'video',
+        sourceText: transcript,
+        extractedTasks: extractData.tasks,
+        status: 'pending_review',
+      },
+    });
+
+    await prisma.transcriptionJob.update({
+      where: { id: jobId },
+      data: { status: 'done', extractionId: extraction.id },
+    });
+
+    // 8. Delete temp file
+    try { fs.unlinkSync(job.filePath); } catch { /* ignore */ }
+  } catch (error) {
+    console.error(`Transcription job ${jobId} failed:`, error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await prisma.transcriptionJob.update({
+      where: { id: jobId },
+      data: { status: 'error', errorMessage },
+    }).catch(() => { /* ignore */ });
+  }
+}
+
 /**
  * @openapi
  * /api/ai/extract-from-notes:
@@ -57,7 +144,7 @@ const upload = multer({
  *       200:
  *         description: Extracted tasks
  */
-aiRoutes.post('/extract-from-notes', async (req, res) => {
+aiRoutes.post('/extract-from-notes', requireScope('ai:extract'), async (req, res) => {
   try {
     const { text, boardId, targetIndividual } = req.body;
 
@@ -92,6 +179,7 @@ aiRoutes.post('/extract-from-notes', async (req, res) => {
 
     const platform = detectPlatform(text);
 
+    capture('ai_used', { feature: 'extraction' });
     res.json({
       extractionId: extraction.id,
       tasks: data.tasks,
@@ -108,7 +196,7 @@ aiRoutes.post('/extract-from-notes', async (req, res) => {
  * /api/ai/transcribe-video:
  *   post:
  *     tags: [AI]
- *     summary: Transcribe video and extract tasks
+ *     summary: Start async video transcription job
  *     requestBody:
  *       content:
  *         multipart/form-data:
@@ -121,10 +209,10 @@ aiRoutes.post('/extract-from-notes', async (req, res) => {
  *               boardId:
  *                 type: string
  *     responses:
- *       200:
- *         description: Transcript and extracted tasks
+ *       202:
+ *         description: Job created, returns jobId
  */
-aiRoutes.post('/transcribe-video', upload.single('video'), async (req, res) => {
+aiRoutes.post('/transcribe-video', requireScope('ai:transcribe'), upload.single('video'), async (req, res) => {
   try {
     const { boardId } = req.body;
     const file = req.file;
@@ -133,57 +221,109 @@ aiRoutes.post('/transcribe-video', upload.single('video'), async (req, res) => {
       return res.status(400).json({ error: 'Video file and boardId are required' });
     }
 
-    // Call AI service for transcription
-    const transcribeResponse = await fetch(`${AI_SERVICE_URL}/transcribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filepath: file.path }),
-    });
-
-    if (!transcribeResponse.ok) {
-      const error = await transcribeResponse.text();
-      throw new Error(`Transcription error: ${error}`);
-    }
-
-    const transcribeData = await transcribeResponse.json() as TranscribeResponse;
-    const transcript = transcribeData.transcript;
-
-    // Extract tasks from transcript
-    const extractResponse = await fetch(`${AI_SERVICE_URL}/extract-tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: transcript }),
-    });
-
-    if (!extractResponse.ok) {
-      const error = await extractResponse.text();
-      throw new Error(`Task extraction error: ${error}`);
-    }
-
-    const extractData = await extractResponse.json() as ExtractTasksResponse;
-
-    // Save extraction to database
-    const extraction = await prisma.aIExtraction.create({
+    // Create job record
+    const job = await prisma.transcriptionJob.create({
       data: {
         boardId,
-        sourceType: 'video',
-        sourceText: transcript,
-        extractedTasks: extractData.tasks,
-        status: 'pending_review',
+        fileName: file.originalname,
+        fileSize: file.size,
+        filePath: file.path,
+        status: 'queued',
       },
     });
 
-    const platform = detectPlatform(transcript);
+    // Fire and forget
+    processTranscriptionJob(job.id).catch((err) =>
+      console.error(`Unhandled error in transcription job ${job.id}:`, err)
+    );
+
+    capture('ai_used', { feature: 'transcription' });
+    res.status(202).json({ jobId: job.id });
+  } catch (error) {
+    console.error('Error starting transcription job:', error);
+    res.status(500).json({ error: 'Failed to start transcription' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/ai/transcription-jobs/{id}:
+ *   get:
+ *     tags: [AI]
+ *     summary: Get transcription job status
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job details
+ */
+aiRoutes.get('/transcription-jobs/:id', requireScope('ai:extract'), async (req, res) => {
+  try {
+    const { id } = req.params as Record<string, string>;
+
+    const job = await prisma.transcriptionJob.findUnique({ where: { id } });
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
 
     res.json({
-      extractionId: extraction.id,
-      transcript,
-      tasks: extractData.tasks,
-      platform,
+      id: job.id,
+      status: job.status,
+      fileName: job.fileName,
+      fileSize: job.fileSize,
+      transcript: job.transcript,
+      errorMessage: job.errorMessage,
+      extractionId: job.extractionId,
+      createdAt: job.createdAt,
     });
   } catch (error) {
-    console.error('Error processing video:', error);
-    res.status(500).json({ error: 'Failed to process video' });
+    console.error('Error fetching transcription job:', error);
+    res.status(500).json({ error: 'Failed to fetch job' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/ai/transcription-jobs/{id}:
+ *   delete:
+ *     tags: [AI]
+ *     summary: Cancel a transcription job
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Job cancelled
+ */
+aiRoutes.delete('/transcription-jobs/:id', requireScope('ai:extract'), async (req, res) => {
+  try {
+    const { id } = req.params as Record<string, string>;
+
+    const job = await prisma.transcriptionJob.findUnique({ where: { id } });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    await prisma.transcriptionJob.update({
+      where: { id },
+      data: { status: 'cancelled' },
+    });
+
+    // Best-effort file cleanup
+    try { fs.unlinkSync(job.filePath); } catch { /* ignore */ }
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error cancelling transcription job:', error);
+    res.status(500).json({ error: 'Failed to cancel job' });
   }
 });
 
@@ -203,9 +343,9 @@ aiRoutes.post('/transcribe-video', upload.single('video'), async (req, res) => {
  *       200:
  *         description: List of pending extractions
  */
-aiRoutes.get('/extractions/:boardId', async (req, res) => {
+aiRoutes.get('/extractions/:boardId', requireScope('ai:extract'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const extractions = await prisma.aIExtraction.findMany({
       where: {
@@ -238,9 +378,9 @@ aiRoutes.get('/extractions/:boardId', async (req, res) => {
  *       200:
  *         description: Extraction details
  */
-aiRoutes.get('/extraction/:id', async (req, res) => {
+aiRoutes.get('/extraction/:id', requireScope('ai:extract'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const extraction = await prisma.aIExtraction.findUnique({
       where: { id },
@@ -264,22 +404,6 @@ aiRoutes.get('/extraction/:id', async (req, res) => {
 
 /**
  * @openapi
- * /api/ai/extractions/{id}/complete:
- *   put:
- *     tags: [AI]
- *     summary: Complete an extraction
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Extraction completed
- */
-/**
- * @openapi
  * /api/ai/reword:
  *   post:
  *     tags: [AI]
@@ -288,7 +412,7 @@ aiRoutes.get('/extraction/:id', async (req, res) => {
  *       200:
  *         description: Reworded text
  */
-aiRoutes.post('/reword', async (req, res) => {
+aiRoutes.post('/reword', requireScope('ai:reword'), async (req, res) => {
   try {
     const { text, context } = req.body;
     if (!text) {
@@ -307,6 +431,7 @@ aiRoutes.post('/reword', async (req, res) => {
     }
 
     const data = await response.json() as { content: string };
+    capture('ai_used', { feature: 'reword' });
     res.json(data);
   } catch (error) {
     console.error('Error rewording text:', error);
@@ -324,9 +449,9 @@ aiRoutes.post('/reword', async (req, res) => {
  *       200:
  *         description: Generated section content
  */
-aiRoutes.post('/generate-section', async (req, res) => {
+aiRoutes.post('/generate-section', requireScope('ai:reword'), async (req, res) => {
   try {
-    const { sectionName, templateContext, taskContext } = req.body;
+    const { sectionName, rowContext, documentContext } = req.body;
     if (!sectionName) {
       return res.status(400).json({ error: 'sectionName is required' });
     }
@@ -336,8 +461,8 @@ aiRoutes.post('/generate-section', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         section_name: sectionName,
-        template_context: templateContext || '',
-        task_context: taskContext || '',
+        row_context: rowContext || '',
+        document_context: documentContext || '',
       }),
     });
 
@@ -347,6 +472,7 @@ aiRoutes.post('/generate-section', async (req, res) => {
     }
 
     const data = await response.json() as { content: string };
+    capture('ai_used', { feature: 'generate_section' });
     res.json(data);
   } catch (error) {
     console.error('Error generating section:', error);
@@ -427,7 +553,7 @@ aiRoutes.post('/generate-section', async (req, res) => {
  *               properties:
  *                 error: { type: string, example: "Failed to generate theme" }
  */
-aiRoutes.post('/generate-theme', async (req, res) => {
+aiRoutes.post('/generate-theme', requireScope('ai:reword'), async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) {
@@ -446,6 +572,7 @@ aiRoutes.post('/generate-theme', async (req, res) => {
     }
 
     const data = await response.json() as { isDark: boolean; colors: Record<string, string> };
+    capture('ai_used', { feature: 'generate_theme' });
     res.json(data);
   } catch (error) {
     console.error('Error generating theme:', error);
@@ -453,9 +580,9 @@ aiRoutes.post('/generate-theme', async (req, res) => {
   }
 });
 
-aiRoutes.put('/extractions/:id/complete', async (req, res) => {
+aiRoutes.put('/extractions/:id/complete', requireScope('ai:extract'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const extraction = await prisma.aIExtraction.update({
       where: { id },

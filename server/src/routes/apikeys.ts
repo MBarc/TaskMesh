@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma.js';
+import { requireScope } from '../lib/apiKeyAuth.js';
+import { capture } from '../lib/telemetry.js';
 
 export const apiKeyRoutes = Router();
 
@@ -15,7 +17,7 @@ export const apiKeyRoutes = Router();
  *       200:
  *         description: List of API keys
  */
-apiKeyRoutes.get('/', async (req, res) => {
+apiKeyRoutes.get('/', requireScope('apikeys:read'), async (req, res) => {
   try {
     const keys = await prisma.apiKey.findMany({
       orderBy: { createdAt: 'desc' },
@@ -33,6 +35,7 @@ apiKeyRoutes.get('/', async (req, res) => {
       createdAt: k.createdAt.toISOString(),
       revokedAt: k.revokedAt?.toISOString() || null,
       usageCount: k._count.usageLog,
+      scopes: Array.isArray(k.scopes) ? k.scopes : [],
     }));
 
     res.json(masked);
@@ -66,24 +69,27 @@ apiKeyRoutes.get('/', async (req, res) => {
  *       201:
  *         description: API key created (full key returned once)
  */
-apiKeyRoutes.post('/', async (req, res) => {
+apiKeyRoutes.post('/', requireScope('apikeys:write'), async (req, res) => {
   try {
-    const { name, expiresAt } = req.body;
+    const { name, expiresAt, scopes } = req.body;
 
     if (!name || !expiresAt) {
       return res.status(400).json({ error: 'name and expiresAt are required' });
     }
 
     const key = `tm01.${uuidv4()}`;
+    const scopeList = Array.isArray(scopes) ? scopes : [];
 
     const apiKey = await prisma.apiKey.create({
       data: {
         name,
         key,
         expiresAt: new Date(expiresAt),
+        scopes: scopeList,
       },
     });
 
+    capture('api_key_created');
     res.status(201).json({
       id: apiKey.id,
       name: apiKey.name,
@@ -91,6 +97,7 @@ apiKeyRoutes.post('/', async (req, res) => {
       status: apiKey.status,
       expiresAt: apiKey.expiresAt.toISOString(),
       createdAt: apiKey.createdAt.toISOString(),
+      scopes: scopeList,
     });
   } catch (error) {
     console.error('Error creating API key:', error);
@@ -115,9 +122,9 @@ apiKeyRoutes.post('/', async (req, res) => {
  *       200:
  *         description: API key revoked
  */
-apiKeyRoutes.delete('/:id', async (req, res) => {
+apiKeyRoutes.delete('/:id', requireScope('apikeys:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const apiKey = await prisma.apiKey.update({
       where: { id },
@@ -127,6 +134,7 @@ apiKeyRoutes.delete('/:id', async (req, res) => {
       },
     });
 
+    capture('api_key_revoked');
     res.json({
       id: apiKey.id,
       name: apiKey.name,
@@ -166,9 +174,9 @@ apiKeyRoutes.delete('/:id', async (req, res) => {
  *       200:
  *         description: Usage history entries
  */
-apiKeyRoutes.get('/:id/history', async (req, res) => {
+apiKeyRoutes.get('/:id/history', requireScope('apikeys:read'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const skip = (page - 1) * limit;

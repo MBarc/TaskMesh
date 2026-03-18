@@ -98,7 +98,7 @@ export function ThemeStudio({ onClose }: ThemeStudioProps) {
 
   const canSave = themeName.trim().length > 0;
 
-  const handleSave = (apply: boolean) => {
+  const handleSave = async (apply: boolean) => {
     setSaveError(null);
     setSavedMessage(null);
 
@@ -113,17 +113,26 @@ export function ThemeStudio({ onClose }: ThemeStudioProps) {
       return;
     }
 
-    saveStudioTheme(buildDef(), apply);
-    setSavedMessage(apply ? 'Theme saved and applied!' : 'Theme saved!');
-    setTimeout(() => setSavedMessage(null), 3000);
+    try {
+      await saveStudioTheme(buildDef(), apply);
+      setSavedMessage(apply ? 'Theme saved and applied!' : 'Theme saved!');
+      setTimeout(() => setSavedMessage(null), 3000);
+    } catch {
+      setSaveError('Failed to save theme. Please try again.');
+    }
   };
 
-  const confirmOverwrite = () => {
+  const confirmOverwrite = async () => {
     if (!overwrite) return;
-    overwriteCustomTheme(overwrite.existingId, buildDef(), overwrite.apply);
-    setSavedMessage(overwrite.apply ? 'Theme overwritten and applied!' : 'Theme overwritten!');
-    setOverwrite(null);
-    setTimeout(() => setSavedMessage(null), 3000);
+    try {
+      await overwriteCustomTheme(overwrite.existingId, buildDef(), overwrite.apply);
+      setSavedMessage(overwrite.apply ? 'Theme overwritten and applied!' : 'Theme overwritten!');
+      setOverwrite(null);
+      setTimeout(() => setSavedMessage(null), 3000);
+    } catch {
+      setSaveError('Failed to save theme. Please try again.');
+      setOverwrite(null);
+    }
   };
 
   const handleClose = () => {
@@ -176,6 +185,9 @@ export function ThemeStudio({ onClose }: ThemeStudioProps) {
           <h3 className="text-sm font-medium text-text-primary">
             AI Color Generator
           </h3>
+          <span className="text-xs font-medium text-primary-500 bg-primary-500/10 px-1.5 py-0.5 rounded">
+            Beta
+          </span>
           <span className="text-xs text-text-muted ml-1">
             Describe a mood, memory, or aesthetic
           </span>

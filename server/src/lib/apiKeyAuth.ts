@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { prisma } from './prisma.js';
 
 export async function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
@@ -21,7 +21,6 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     }
 
     // Log usage asynchronously (fire and forget, don't block the request)
-    const statusCode = res.statusCode;
     res.on('finish', () => {
       prisma.apiKeyUsage.create({
         data: {
@@ -30,7 +29,7 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
           path: req.originalUrl,
           statusCode: res.statusCode,
         },
-      }).catch((err) => {
+      }).catch((err: unknown) => {
         console.error('Failed to log API key usage:', err);
       });
     });
@@ -39,10 +38,31 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     (req as any).apiKey = {
       id: apiKey.id,
       name: apiKey.name,
+      scopes: Array.isArray(apiKey.scopes) ? apiKey.scopes as string[] : [],
     };
   } catch (error) {
     console.error('API key auth error:', error);
   }
 
   next();
+}
+
+/**
+ * Middleware that enforces a required scope on API key requests.
+ * UI requests (no apiKey attached) always pass through.
+ * Keys with an empty scopes array have full access (backward compat).
+ */
+export function requireScope(scope: string): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const apiKey = (req as any).apiKey;
+    if (!apiKey) return next(); // UI request — no restriction
+    const scopes: string[] = apiKey.scopes;
+    if (scopes.length === 0) return next(); // Full access (backward compat)
+    if (scopes.includes(scope)) return next();
+    return res.status(403).json({
+      error: 'insufficient_scope',
+      required: scope,
+      message: `This API key does not have the '${scope}' scope required for this endpoint.`,
+    });
+  };
 }

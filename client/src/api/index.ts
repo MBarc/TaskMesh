@@ -1,4 +1,5 @@
-import type { Board, Column, Task, ColumnType, ExtractedTask, AIExtraction, Platform, AdoSettings, AdoWorkItemType, AdoWorkItemSearchResult, AdoTemplatesConfig, AdoMetadataTemplatesConfig, SnowSettings, SnowIncidentSearchResult, EmailSettings, EmailQueueItem, EmailThreadMessage, EmailProvider, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyHistoryResponse, DocumentationSettings, DocumentDraft, DocumentationTemplate, ArchiveSettings, ArchiveTasksResponse } from '../types';
+import type { Board, Column, Task, ColumnType, ExtractedTask, AIExtraction, Platform, AdoSettings, AdoWorkItemType, AdoWorkItemSearchResult, AdoTemplatesConfig, AdoMetadataTemplatesConfig, SnowSettings, SnowIncidentSearchResult, EmailSettings, EmailQueueItem, EmailThreadMessage, EmailProvider, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyHistoryResponse, DocumentationSettings, DocumentDraft, DocumentationTemplate, ArchiveSettings, ArchiveTasksResponse, TranscriptionJob, Notification, DocTree, DocFolder, DocFile } from '../types';
+import type { ThemeDefinition } from '../themes/themeDefinitions';
 
 const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
@@ -69,11 +70,12 @@ export async function updateColumn(
   columnId: string,
   name: string,
   options?: { value: string; color?: string }[],
-  requiredForCompletion?: boolean
+  requiredForCompletion?: boolean,
+  alignment?: string
 ): Promise<Column> {
   return fetchAPI<Column>(`/api/columns/${columnId}`, {
     method: 'PUT',
-    body: JSON.stringify({ name, options, requiredForCompletion }),
+    body: JSON.stringify({ name, options, requiredForCompletion, alignment }),
   });
 }
 
@@ -146,25 +148,57 @@ export async function extractTasksFromNotes(
   });
 }
 
-export async function transcribeVideo(
+export async function startTranscription(
   boardId: string,
-  file: File
-): Promise<{ extractionId: string; transcript: string; tasks: ExtractedTask[]; platform: Platform }> {
-  const formData = new FormData();
-  formData.append('video', file);
-  formData.append('boardId', boardId);
+  file: File,
+  onUploadProgress?: (pct: number) => void
+): Promise<{ jobId: string }> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('video', file);
+    formData.append('boardId', boardId);
 
-  const response = await fetch(`${API_URL}/api/ai/transcribe-video`, {
-    method: 'POST',
-    body: formData,
+    const xhr = new XMLHttpRequest();
+
+    if (onUploadProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status === 202) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Invalid response from server'));
+        }
+      } else {
+        try {
+          const err = JSON.parse(xhr.responseText);
+          reject(new Error(err.error || 'Upload failed'));
+        } catch {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onabort = () => reject(new Error('Upload aborted'));
+
+    xhr.open('POST', `${API_URL}/api/ai/transcribe-video`);
+    xhr.send(formData);
   });
+}
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
-  }
+export async function getTranscriptionJob(jobId: string): Promise<TranscriptionJob> {
+  return fetchAPI<TranscriptionJob>(`/api/ai/transcription-jobs/${jobId}`);
+}
 
-  return response.json();
+export async function cancelTranscription(jobId: string): Promise<void> {
+  return fetchAPI<void>(`/api/ai/transcription-jobs/${jobId}`, { method: 'DELETE' });
 }
 
 export async function completeExtraction(extractionId: string): Promise<void> {
@@ -572,6 +606,69 @@ export async function importDocumentationTemplates(
   });
 }
 
+// Wiki (Documentation File Explorer) API
+export async function getDocTree(boardId: string): Promise<DocTree> {
+  return fetchAPI<DocTree>(`/api/documentation/wiki/${boardId}`);
+}
+
+export async function createDocFolder(data: { boardId: string; name: string; parentFolderId?: string | null }): Promise<DocFolder> {
+  return fetchAPI<DocFolder>('/api/documentation/wiki/folders', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function renameDocFolder(id: string, name: string): Promise<DocFolder> {
+  return fetchAPI<DocFolder>(`/api/documentation/wiki/folders/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteDocFolder(id: string): Promise<void> {
+  return fetchAPI<void>(`/api/documentation/wiki/folders/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function moveDocFolder(id: string, parentFolderId: string | null): Promise<DocFolder> {
+  return fetchAPI<DocFolder>(`/api/documentation/wiki/folders/${id}/move`, {
+    method: 'PUT',
+    body: JSON.stringify({ parentFolderId }),
+  });
+}
+
+export async function createDocFile(data: { boardId: string; name: string; folderId?: string | null; content?: string }): Promise<DocFile> {
+  return fetchAPI<DocFile>('/api/documentation/wiki/files', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getDocFile(id: string): Promise<DocFile> {
+  return fetchAPI<DocFile>(`/api/documentation/wiki/files/${id}`);
+}
+
+export async function updateDocFile(id: string, data: { name?: string; content?: string }): Promise<DocFile> {
+  return fetchAPI<DocFile>(`/api/documentation/wiki/files/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteDocFile(id: string): Promise<void> {
+  return fetchAPI<void>(`/api/documentation/wiki/files/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function moveDocFile(id: string, folderId: string | null): Promise<DocFile> {
+  return fetchAPI<DocFile>(`/api/documentation/wiki/files/${id}/move`, {
+    method: 'PUT',
+    body: JSON.stringify({ folderId }),
+  });
+}
+
 export async function ensureDocumentationColumn(boardId: string): Promise<Column> {
   return fetchAPI<Column>(`/api/columns/boards/${boardId}/columns/ensure-documentation`, {
     method: 'POST',
@@ -593,8 +690,8 @@ export async function rewordText(text: string, context?: string): Promise<{ cont
 
 export async function generateSection(data: {
   sectionName: string;
-  templateContext?: string;
-  taskContext?: string;
+  rowContext?: string;
+  documentContext?: string;
 }): Promise<{ content: string }> {
   return fetchAPI<{ content: string }>('/api/ai/generate-section', {
     method: 'POST',
@@ -635,6 +732,197 @@ export async function deleteArchivedTask(id: string): Promise<void> {
   return fetchAPI<void>(`/api/archive/tasks/${id}`, {
     method: 'DELETE',
   });
+}
+
+// Export API
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportBoard(
+  boardId: string,
+  format: 'csv' | 'json',
+  taskIds?: string[]
+): Promise<void> {
+  const params = new URLSearchParams({ format });
+  const response = await fetch(
+    `${API_URL}/api/export/board/${boardId}?${params}`,
+    taskIds
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskIds }) }
+      : { method: 'GET' }
+  );
+  if (!response.ok) throw new Error('Export failed');
+  const blob = await response.blob();
+  const cd = response.headers.get('content-disposition') ?? '';
+  const filename = cd.match(/filename="([^"]+)"/)?.[1] ?? `export.${format}`;
+  triggerDownload(blob, filename);
+}
+
+export async function exportAll(): Promise<void> {
+  const response = await fetch(`${API_URL}/api/export/all`);
+  if (!response.ok) throw new Error('Export failed');
+  const blob = await response.blob();
+  triggerDownload(blob, `taskmesh-export-${new Date().toISOString().split('T')[0]}.zip`);
+}
+
+// Notifications API
+export async function getNotifications(): Promise<Notification[]> {
+  return fetchAPI<Notification[]>('/api/notifications');
+}
+
+export async function markNotificationsRead(): Promise<void> {
+  return fetchAPI<void>('/api/notifications/read-all', { method: 'PUT' });
+}
+
+export async function dismissNotification(id: string): Promise<void> {
+  return fetchAPI<void>(`/api/notifications/${id}`, { method: 'DELETE' });
+}
+
+export async function dismissAllNotifications(): Promise<void> {
+  return fetchAPI<void>('/api/notifications', { method: 'DELETE' });
+}
+
+// ── Search API ──
+
+export interface SearchTaskCellValue {
+  id: string;
+  columnId: string;
+  value: string;
+  column: { id: string; name: string; type: string };
+}
+
+export interface SearchTaskResult {
+  id: string;
+  boardId: string;
+  updatedAt: string;
+  board: { id: string; name: string };
+  cellValues: SearchTaskCellValue[];
+}
+
+export interface SearchResponse {
+  tasks: SearchTaskResult[];
+  total: number;
+}
+
+export async function searchTasks(params: {
+  q?: string;
+  boardId?: string;
+  source?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<SearchResponse> {
+  const sp = new URLSearchParams();
+  if (params.q)        sp.set('q', params.q);
+  if (params.boardId)  sp.set('boardId', params.boardId);
+  if (params.source)   sp.set('source', params.source);
+  if (params.dateFrom) sp.set('dateFrom', params.dateFrom);
+  if (params.dateTo)   sp.set('dateTo', params.dateTo);
+  if (params.limit  !== undefined) sp.set('limit',  String(params.limit));
+  if (params.offset !== undefined) sp.set('offset', String(params.offset));
+  return fetchAPI<SearchResponse>(`/api/search?${sp}`);
+}
+
+// ── App Settings API ──
+export interface AppSettings {
+  telemetryEnabled: boolean;
+  archiveEnabled: boolean;
+  archiveRetentionDays: number;
+  activeThemeId: string;
+  autoUpdateEnabled: boolean;
+}
+
+export interface UpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  justUpdated: boolean;
+  releaseNotes: string | null;
+  releaseDate: string | null;
+  checkedAt: string | null;
+  autoUpdateEnabled: boolean;
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus> {
+  return fetchAPI<UpdateStatus>('/api/updates/status');
+}
+
+export async function checkForUpdates(): Promise<UpdateStatus> {
+  return fetchAPI<UpdateStatus>('/api/updates/check', { method: 'POST' });
+}
+
+export async function applyUpdate(): Promise<{ status: string; message: string }> {
+  return fetchAPI<{ status: string; message: string }>('/api/updates/apply', { method: 'POST' });
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return fetchAPI<AppSettings>('/api/settings');
+}
+
+export async function updateAppSettings(data: Partial<AppSettings>): Promise<AppSettings> {
+  return fetchAPI<AppSettings>('/api/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function appLoaded(data: { theme: string }): Promise<void> {
+  return fetchAPI<void>('/api/telemetry/app-loaded', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function captureEvent(event: string, properties?: Record<string, unknown>): Promise<void> {
+  return fetchAPI<void>('/api/telemetry/event', {
+    method: 'POST',
+    body: JSON.stringify({ event, properties }),
+  });
+}
+
+// ── Board Sort API ──
+export async function getBoardSorts(): Promise<Record<string, { columnId: string; direction: 'asc' | 'desc' }[]>> {
+  return fetchAPI('/api/sorts');
+}
+
+export async function setBoardSorts(boardId: string, sorts: { columnId: string; direction: 'asc' | 'desc' }[]): Promise<void> {
+  return fetchAPI(`/api/sorts/${boardId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ sorts }),
+  });
+}
+
+export async function deleteBoardSorts(boardId: string): Promise<void> {
+  return fetchAPI(`/api/sorts/${boardId}`, { method: 'DELETE' });
+}
+
+// ── Custom Theme API ──
+export async function getCustomThemes(): Promise<ThemeDefinition[]> {
+  return fetchAPI<ThemeDefinition[]>('/api/themes');
+}
+
+export async function createCustomTheme(def: Omit<ThemeDefinition, 'id'>): Promise<ThemeDefinition> {
+  return fetchAPI<ThemeDefinition>('/api/themes', {
+    method: 'POST',
+    body: JSON.stringify({ name: def.name, isDark: def.isDark, colors: def.colors }),
+  });
+}
+
+export async function updateCustomTheme(id: string, def: Partial<ThemeDefinition>): Promise<ThemeDefinition> {
+  return fetchAPI<ThemeDefinition>(`/api/themes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name: def.name, isDark: def.isDark, colors: def.colors }),
+  });
+}
+
+export async function deleteCustomTheme(id: string): Promise<void> {
+  return fetchAPI<void>(`/api/themes/${id}`, { method: 'DELETE' });
 }
 
 // ── Connector SDK API ──

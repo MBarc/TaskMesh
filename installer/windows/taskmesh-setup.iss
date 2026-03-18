@@ -35,6 +35,7 @@ SolidCompression=yes
 WizardStyle=modern
 WizardSizePercent=120
 DisableWelcomePage=no
+DisableFinishedPage=yes
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
@@ -50,7 +51,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon";   Description: "Create a &desktop shortcut";          GroupDescription: "Shortcuts:"; Flags: unchecked
 Name: "startupentry";  Description: "Start TaskMesh automatically at &login"; GroupDescription: "Startup:";   Flags: unchecked
-Name: "autoupdate";    Description: "Check for updates &weekly";            GroupDescription: "Updates:";   Flags: unchecked
+Name: "autoupdate";    Description: "Check for updates &weekly";            GroupDescription: "Updates:"
 
 ; ─── [Files] ──────────────────────────────────────────────────────────────────
 [Files]
@@ -64,6 +65,7 @@ Source: "dist\node\*";              DestDir: "{app}\node";              Flags: i
 Source: "dist\server\dist\*";       DestDir: "{app}\server\dist";       Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dist\server\node_modules\*"; DestDir: "{app}\server\node_modules"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dist\server\prisma\*";     DestDir: "{app}\server\prisma";     Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\server\package.json"; DestDir: "{app}\server";             Flags: ignoreversion
 
 ; Built React SPA — placed inside the server directory so Express can find it at
 ; ../public relative to server/dist/index.js with no path calculation ambiguity.
@@ -73,8 +75,10 @@ Source: "dist\server\public\*";     DestDir: "{app}\server\public";     Flags: i
 Source: "dist\nssm\nssm.exe";       DestDir: "{app}\nssm";              Flags: ignoreversion
 
 ; Installer scripts
-Source: "scripts\install-services.ps1";   DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\install-services.ps1";          DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\ps-launcher.exe";               DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\install-ai.ps1";         DestDir: "{app}\scripts"; Flags: ignoreversion; Components: ai
+Source: "scripts\detect-hardware.ps1";    DestDir: "{app}\scripts"; Flags: ignoreversion; Components: ai
 Source: "scripts\uninstall-services.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\uninstall-ollama.ps1";   DestDir: "{app}\scripts"; Flags: ignoreversion; Components: ai
 Source: "scripts\ensure-port.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
@@ -110,7 +114,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 ; Application registration — uninsdeletekey removes the entire key on uninstall.
 ; AppDir is written here AND by install-services.ps1 (same value) so start-taskmesh.bat
 ; always finds it even if the post-install script encounters an error.
-Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"; Flags: createvalueifdoesntexist uninsdeletekey
+Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "AppDir";     ValueData: "{app}"
 Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "DataDir";    ValueData: "{code:GetDataDir}"
@@ -120,32 +124,31 @@ Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Port";
 ; ─── [Run] ────────────────────────────────────────────────────────────────────
 [Run]
 ; Step 1a — Register core Windows services (default: hidden, no console flash)
-Filename: "powershell.exe"; \
-    Parameters: "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"""; \
+; ps-launcher.exe is a GUI-subsystem WinExe compiled at build time.  Because it
+; is not a console app, Windows never creates a console window for it.  It uses
+; ProcessStartInfo.CreateNoWindow=true so the child PowerShell is also fully
+; hidden — eliminating the brief flash that occurs with -WindowStyle Hidden alone.
+Filename: "{app}\scripts\ps-launcher.exe"; \
+    Parameters: """{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"""; \
     StatusMsg: "Registering TaskMesh services (this may take a minute)..."; \
-    Flags: runhidden waituntilterminated; \
+    Flags: waituntilterminated; \
     Check: IsNotVerboseMode
 
 ; Step 1b — Register core Windows services (/VERBOSE: visible console window)
 Filename: "powershell.exe"; \
-    Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -Verbose"; \
+    Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"" -Verbose"; \
     StatusMsg: "Registering TaskMesh services (verbose — console window is open)..."; \
     Flags: waituntilterminated; \
     Check: IsVerboseMode
 
-; Step 2 — AI components (visible window, slow ~2.5 GB download)
-Filename: "powershell.exe"; \
-    Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-ai.ps1"" -AppDir ""{app}"""; \
-    StatusMsg: "Downloading AI components (~2.5 GB) — a progress window is open..."; \
-    Flags: waituntilterminated; Components: ai
+; Step 2 — AI components (runs hidden via ps-launcher.exe — no console flash)
+Filename: "{app}\scripts\ps-launcher.exe"; \
+    Parameters: """{app}\scripts\install-ai.ps1"" -AppDir ""{app}"" -OllamaModel ""{code:GetAIModel}"""; \
+    StatusMsg: "Setting up AI components (this may take a while)..."; \
+    Flags: waituntilterminated; Components: ai; \
+    Check: IsAIEnabled
 
-; Open app in browser (optional, shown on finish page)
-; Use wscript.exe + VBS so no terminal window appears when the user clicks "Launch".
-Filename: "{sys}\wscript.exe"; \
-    Parameters: """{app}\scripts\launch-taskmesh.vbs"""; \
-    WorkingDir: "{app}"; \
-    Description: "Launch {#AppName} now"; \
-    Flags: nowait postinstall skipifsilent
+; Launch is handled by DeinitializeSetup via the checkbox on CelebrationPage.
 
 ; ─── [UninstallRun] ───────────────────────────────────────────────────────────
 [UninstallRun]
@@ -192,15 +195,22 @@ Filename: "{app}\desktop.ini"; Section: ".ShellClassInfo"; Key: "IconIndex";    
 var
   DataDirPage:     TInputDirWizardPage;
   OptionsPage:     TInputOptionWizardPage;
+  TelemetryPage:   TInputOptionWizardPage;
+  AIModelPage:     TWizardPage;
   CelebrationPage: TWizardPage;
 
+  DetectedModel:   String;  // hardware-selected model or 'disabled'
+  AIModelIndex:    Integer; // index of the currently selected AI model (0–3)
+
+  // AI model page radio buttons (stored globally so GetAIModel can read Checked)
+  AIRadio0, AIRadio1, AIRadio2, AIRadio3: TRadioButton;
+
   // Celebration page widgets
-  CelebPanel:      TPanel;
-  CelebTitle:      TLabel;
-  CelebCheck1:     TLabel;
-  CelebCheck2:     TLabel;
-  CelebCheck3:     TLabel;
-  CelebTagline:    TLabel;
+  CelebPanel:        TPanel;
+  CelebTitle:        TLabel;
+  CelebLaunchCheck:  TCheckBox;
+
+  InstallCompleted:  Boolean;
 
   IsRepairMode:    Boolean;
   RemoveOllama:    Boolean;
@@ -246,6 +256,21 @@ begin
     Result := '0';
 end;
 
+// ── Helper: telemetry opt-in value ('1' = enabled, '0' = disabled) ───────────
+// CLI /TELEMETRY= takes precedence; wizard page is read otherwise; default is '1'.
+function GetTelemetryEnabled(Param: String): String;
+begin
+  if ExpandConstant('{param:TELEMETRY|}') <> '' then
+  begin
+    Result := ExpandConstant('{param:TELEMETRY|}');
+    Exit;
+  end;
+  if (TelemetryPage <> nil) and TelemetryPage.Values[0] then
+    Result := '1'
+  else
+    Result := '0';
+end;
+
 // ── Helper: quiet mode — skip wizard pages, read all settings from CLI ────────
 // Activated by Inno's /SILENT or /VERYSILENT, or by the custom /QUIET flag.
 // Use for scripted/programmatic installs where no user interaction is possible.
@@ -266,6 +291,136 @@ function IsNotVerboseMode: Boolean;
 begin
   Result := not IsVerboseMode();
 end;
+
+// ── Hardware detection — WMI-based RAM and VRAM queries ──────────────────────
+// Returns total physical RAM in GB (0 on failure).
+function GetRAMGB: Integer;
+var
+  Locator, Service, Items, Item: Variant;
+  RawStr: String;
+begin
+  Result := 0;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\cimv2');
+    Items   := Service.ExecQuery('SELECT TotalPhysicalMemory FROM Win32_ComputerSystem');
+    if Items.Count > 0 then
+    begin
+      Item   := Items.ItemIndex(0);
+      RawStr := Item.TotalPhysicalMemory;
+      if RawStr <> '' then
+        Result := StrToInt64(RawStr) div 1073741824;
+    end;
+  except
+  end;
+end;
+
+// Returns the largest GPU adapter RAM in GB across all video controllers (0 on failure).
+// Note: Win32_VideoController.AdapterRAM is a UINT32, so values above 4 GB are
+// reported as 4 GB. This is acceptable for the recommendation UI; the actual
+// detect-hardware.ps1 script uses nvidia-smi for accurate VRAM on high-end cards.
+function GetVRAMGB: Integer;
+var
+  Locator, Service, Items, Item: Variant;
+  MaxVRAM, CurVRAM: Int64;
+  i: Integer;
+begin
+  Result  := 0;
+  MaxVRAM := 0;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\cimv2');
+    Items   := Service.ExecQuery('SELECT AdapterRAM FROM Win32_VideoController');
+    for i := 0 to Items.Count - 1 do
+    begin
+      Item    := Items.ItemIndex(i);
+      CurVRAM := Item.AdapterRAM;
+      if CurVRAM > MaxVRAM then MaxVRAM := CurVRAM;
+    end;
+    Result := MaxVRAM div 1073741824;
+  except
+  end;
+end;
+
+// Runs hardware detection and sets the DetectedModel global.
+// Mirrors the tier logic in detect-hardware.ps1.
+// Falls back to 'llama3.1:8b' if RAM detection returns 0 (WMI failure).
+procedure RunHardwareDetection;
+var
+  RAMGB, VRAMGB: Integer;
+begin
+  DetectedModel := 'llama3.1:8b';  // safe default if detection fails
+  RAMGB  := GetRAMGB;
+  VRAMGB := GetVRAMGB;
+
+  if RAMGB = 0 then Exit;  // WMI failure — keep safe default
+
+  if      VRAMGB >= 16 then DetectedModel := 'qwen2.5:32b'
+  else if VRAMGB >= 8  then DetectedModel := 'qwen2.5:14b'
+  else if VRAMGB >= 4  then DetectedModel := 'llama3.1:8b'
+  else if RAMGB  >= 32 then DetectedModel := 'qwen2.5:14b'
+  else if RAMGB  >= 16 then DetectedModel := 'llama3.1:8b'
+  else if RAMGB  >= 8  then DetectedModel := 'llama3.2:3b'
+  else                       DetectedModel := 'disabled';
+end;
+
+// ── AI model helpers ─────────────────────────────────────────────────────────
+// Maps a model tag to its radio-button index (0–3).
+// Unknown/disabled hardware falls back to index 3 (lightest model).
+function ModelToIndex(Model: String): Integer;
+begin
+  if      Model = 'qwen2.5:32b' then Result := 0
+  else if Model = 'qwen2.5:14b' then Result := 1
+  else if Model = 'llama3.1:8b' then Result := 2
+  else                                Result := 3;  // llama3.2:3b or unknown → lightest
+end;
+
+// Maps a radio-button index back to its model tag.
+function IndexToModel(Idx: Integer): String;
+begin
+  case Idx of
+    0: Result := 'qwen2.5:32b';
+    1: Result := 'qwen2.5:14b';
+    2: Result := 'llama3.1:8b';
+    3: Result := 'llama3.2:3b';
+  else
+    Result := DetectedModel;
+  end;
+end;
+
+// Returns the user-chosen model tag.
+// Precedence: /OLLAMAMODEL= CLI param → wizard page → hardware detection fallback.
+// Called by [Run] Parameters and [Code] PrepareToInstall.
+function GetAIModel(Param: String): String;
+var
+  CliModel: String;
+begin
+  CliModel := ExpandConstant('{param:OLLAMAMODEL|}');
+  if CliModel <> '' then
+  begin
+    Result := CliModel;
+    Exit;
+  end;
+
+  if AIModelPage <> nil then
+  begin
+    Result := IndexToModel(AIModelIndex);
+    Exit;
+  end;
+
+  // Fallback: use hardware-detected model
+  if DetectedModel <> '' then
+    Result := DetectedModel
+  else
+    Result := 'llama3.1:8b';
+end;
+
+// Used in [Run] Check: — only run install-ai.ps1 when the AI component is selected.
+function IsAIEnabled: Boolean;
+begin
+  Result := IsComponentSelected('ai');
+end;
+
 
 // ── Maintenance dialog — returns 1=Repair, 2=Uninstall, 0=Cancel ────────────
 // MsgBox button labels cannot be customised, so we build a small TForm instead.
@@ -384,6 +539,7 @@ begin
         '  /AUTOUPDATE=1|0      Weekly update checks (default: 0)' + #13#10 +
         '  /STARTUP=1|0         Start on Windows login (default: 0)' + #13#10 +
         '  /DESKTOPICON=1|0     Desktop shortcut (default: 0)' + #13#10 +
+        '  /TELEMETRY=1|0       Share anonymous usage data (default: 1)' + #13#10 +
         '  /COMPONENTS=<list>   Components: core,sdk,ai (default: core)' + #13#10 +
         '  /VERBOSE             Show service install console output' + #13#10 +
         '  /QUIET               Skip wizard UI (combine with /VERYSILENT)' + #13#10,
@@ -396,7 +552,8 @@ begin
           'Example:' + #13#10 +
           '  TaskMesh-Setup.exe /QUIET /VERYSILENT' + #13#10 +
           '      /DIR="C:\Program Files\TaskMesh"' + #13#10 +
-          '      /DATADIR="C:\ProgramData\TaskMesh"' + #13#10 + #13#10 +
+          '      /DATADIR="C:\ProgramData\TaskMesh"' + #13#10 +
+          '      /TELEMETRY=0' + #13#10 + #13#10 +
           'Full parameter reference written to:' + #13#10 +
           '  ' + LogFile,
           mbError, MB_OK);
@@ -461,20 +618,43 @@ begin
 end;
 
 // ── CreateCustomPages ────────────────────────────────────────────────────────
+// ── AI model radio-button click handlers ─────────────────────────────────────
+procedure AIRadio0Click(Sender: TObject); begin AIModelIndex := 0; end;
+procedure AIRadio1Click(Sender: TObject); begin AIModelIndex := 1; end;
+procedure AIRadio2Click(Sender: TObject); begin AIModelIndex := 2; end;
+procedure AIRadio3Click(Sender: TObject); begin AIModelIndex := 3; end;
+
+// ── CelebLaunchCheckClick ─────────────────────────────────────────────────────
+// Keeps the Finish button label in sync with the launch checkbox:
+//   checked   → "Launch TaskMesh"  (button opens the app then closes)
+//   unchecked → "Close"            (button just closes the installer)
+procedure CelebLaunchCheckClick(Sender: TObject);
+begin
+  if CelebLaunchCheck.Checked then
+    WizardForm.NextButton.Caption := 'Launch TaskMesh'
+  else
+    WizardForm.NextButton.Caption := 'Close';
+end;
+
+// ── CreateCustomPages ────────────────────────────────────────────────────────
 procedure CreateCustomPages;
 var
   DefaultDataDir: String;
+  DescLabel:      TLabel;
+  RecBadge:       TLabel;
+  SpecLabel:      TLabel;
+  RowY:           Integer;
 begin
   DefaultDataDir := ExpandConstant('{userdocs}\TaskMesh');
 
   // Page 1 — Data location
   DataDirPage := CreateInputDirPage(
     wpSelectDir,
-    'Choose Data Folder',
-    'Tell Buzz where to set up shop.',
-    'TaskMesh stores your database and documents here. The default location ' +
-    'works great for most people — only change it if you need your data ' +
-    'somewhere specific (e.g. a different drive).',
+    'Choose a Data Folder',
+    'Your database and documents will be stored here.',
+    'The default location works for most people. Change it only if you need ' +
+    'your data on a specific drive or in a shared folder. ' +
+    'This folder is not deleted when you uninstall TaskMesh.',
     False, ''
   );
   DataDirPage.Add('&Data folder:');
@@ -487,8 +667,8 @@ begin
   // Page 2 — Options
   OptionsPage := CreateInputOptionPage(
     DataDirPage.ID,
-    'Set Up Your Preferences',
-    'A few quick choices before Buzz gets to work.',
+    'Additional Options',
+    'All of these can be changed later from Settings.',
     '',
     False, False
   );
@@ -499,7 +679,7 @@ begin
   if ExpandConstant('{param:AUTOUPDATE|}') <> '' then
     OptionsPage.Values[0] := (ExpandConstant('{param:AUTOUPDATE|}') = '1')
   else
-    OptionsPage.Values[0] := False;  // auto-update: off by default (stub, not yet functional)
+    OptionsPage.Values[0] := True;   // auto-update: on by default
 
   if ExpandConstant('{param:STARTUP|}') <> '' then
     OptionsPage.Values[1] := (ExpandConstant('{param:STARTUP|}') = '1')
@@ -511,75 +691,249 @@ begin
   else
     OptionsPage.Values[2] := True;
 
-  // Page 3 — Celebration (after install)
-  CelebrationPage := CreateCustomPage(
-    wpInfoAfter,
-    'TaskMesh is Ready!',
-    'Everything is installed and running.'
+  // Page 3 — Telemetry opt-in
+  // Checked by default.  User can uncheck here or toggle later in Settings > Privacy.
+  // CLI /TELEMETRY=0 disables it in quiet mode (default 1 = on).
+  TelemetryPage := CreateInputOptionPage(
+    OptionsPage.ID,
+    'Help Improve TaskMesh',
+    'Help make TaskMesh better. No personal data, ever.',
+    'We collect anonymous signals like "board created" and "feature used" to ' +
+    'understand how TaskMesh is used in the real world.' + #13#10#13#10 +
+    'No task content, board names, passwords, or personal data is ever sent. ' +
+    'You can disable this now by unchecking the box below, or change it at any time in Settings > Privacy.',
+    False, False
+  );
+  TelemetryPage.Add('Share anonymous usage data to help improve TaskMesh');
+  // Default on; /TELEMETRY=0 explicitly opts out in quiet/silent mode.
+  if ExpandConstant('{param:TELEMETRY|}') = '0' then
+    TelemetryPage.Values[0] := False
+  else
+    TelemetryPage.Values[0] := True;
+
+  // Page 4 — AI model selection (shown only when AI component is selected)
+  // Custom TWizardPage with TRadioButton + TLabel pairs for a two-line-per-option
+  // layout: bold model name on line 1, muted spec text on line 2.
+  // ShouldSkipPage hides this page when the AI component is not selected.
+  AIModelIndex := ModelToIndex(DetectedModel);
+
+  AIModelPage := CreateCustomPage(
+    wpSelectTasks,
+    'AI Model',
+    'We made the following recommendation based on your hardware — feel free to change it.'
   );
 
-  // Build celebration panel
+  // Description label — brief explanation of what the parameter count means
+  DescLabel             := TLabel.Create(WizardForm);
+  DescLabel.Parent      := AIModelPage.Surface;
+  DescLabel.Left        := 0;
+  DescLabel.Top         := 0;
+  DescLabel.Width       := AIModelPage.SurfaceWidth;
+  DescLabel.AutoSize    := False;
+  DescLabel.Height      := 18;
+  DescLabel.Font.Name   := 'Segoe UI';
+  DescLabel.Font.Size   := 9;
+  DescLabel.WordWrap    := False;
+  if DetectedModel = 'disabled' then
+    DescLabel.Caption :=
+      'Less than 8 GB of RAM detected — the lightest model is pre-selected.'
+  else
+    DescLabel.Caption :=
+      'More parameters = better AI results, but a larger download and more RAM required.';
+
+  // ── Row builder — 4 option rows, each: radio (name) + rec badge + spec label ──
+  // Row height: 20px radio + 18px spec + 10px gap = 48px per row, starting at Y=28.
+
+  // Row 0 — qwen2.5:32b
+  RowY := 28;
+  AIRadio0             := TRadioButton.Create(WizardForm);
+  AIRadio0.Parent      := AIModelPage.Surface;
+  AIRadio0.Left        := 0;
+  AIRadio0.Top         := RowY;
+  AIRadio0.Width       := 140;
+  AIRadio0.Height      := 20;
+  AIRadio0.Caption     := 'qwen2.5:32b';
+  AIRadio0.Font.Name   := 'Segoe UI';
+  AIRadio0.Font.Size   := 10;
+  AIRadio0.Font.Style  := [fsBold];
+  AIRadio0.OnClick     := @AIRadio0Click;
+  if AIModelIndex = 0 then begin
+    RecBadge           := TLabel.Create(WizardForm);
+    RecBadge.Parent    := AIModelPage.Surface;
+    RecBadge.Left      := 144;
+    RecBadge.Top       := RowY + 3;
+    RecBadge.AutoSize  := True;
+    RecBadge.Caption   := 'recommended';
+    RecBadge.Font.Name := 'Segoe UI';
+    RecBadge.Font.Size := 9;
+    RecBadge.Font.Color := $E5464F;  // brand-600 #4F46E5
+  end;
+  SpecLabel             := TLabel.Create(WizardForm);
+  SpecLabel.Parent      := AIModelPage.Surface;
+  SpecLabel.Left        := 20;
+  SpecLabel.Top         := RowY + 21;
+  SpecLabel.AutoSize    := True;
+  SpecLabel.Caption     := '32 billion parameters  ·  Requires 16 GB+ GPU VRAM  ·  ~20 GB download';
+  SpecLabel.Font.Name   := 'Segoe UI';
+  SpecLabel.Font.Size   := 9;
+  SpecLabel.Font.Color  := $888888;
+
+  // Row 1 — qwen2.5:14b
+  RowY := RowY + 48;
+  AIRadio1             := TRadioButton.Create(WizardForm);
+  AIRadio1.Parent      := AIModelPage.Surface;
+  AIRadio1.Left        := 0;
+  AIRadio1.Top         := RowY;
+  AIRadio1.Width       := 140;
+  AIRadio1.Height      := 20;
+  AIRadio1.Caption     := 'qwen2.5:14b';
+  AIRadio1.Font.Name   := 'Segoe UI';
+  AIRadio1.Font.Size   := 10;
+  AIRadio1.Font.Style  := [fsBold];
+  AIRadio1.OnClick     := @AIRadio1Click;
+  if AIModelIndex = 1 then begin
+    RecBadge           := TLabel.Create(WizardForm);
+    RecBadge.Parent    := AIModelPage.Surface;
+    RecBadge.Left      := 144;
+    RecBadge.Top       := RowY + 3;
+    RecBadge.AutoSize  := True;
+    RecBadge.Caption   := 'recommended';
+    RecBadge.Font.Name := 'Segoe UI';
+    RecBadge.Font.Size := 9;
+    RecBadge.Font.Color := $E5464F;
+  end;
+  SpecLabel             := TLabel.Create(WizardForm);
+  SpecLabel.Parent      := AIModelPage.Surface;
+  SpecLabel.Left        := 20;
+  SpecLabel.Top         := RowY + 21;
+  SpecLabel.AutoSize    := True;
+  SpecLabel.Caption     := '14 billion parameters  ·  Requires 32 GB+ RAM or 8 GB+ GPU VRAM  ·  ~9 GB download';
+  SpecLabel.Font.Name   := 'Segoe UI';
+  SpecLabel.Font.Size   := 9;
+  SpecLabel.Font.Color  := $888888;
+
+  // Row 2 — llama3.1:8b
+  RowY := RowY + 48;
+  AIRadio2             := TRadioButton.Create(WizardForm);
+  AIRadio2.Parent      := AIModelPage.Surface;
+  AIRadio2.Left        := 0;
+  AIRadio2.Top         := RowY;
+  AIRadio2.Width       := 140;
+  AIRadio2.Height      := 20;
+  AIRadio2.Caption     := 'llama3.1:8b';
+  AIRadio2.Font.Name   := 'Segoe UI';
+  AIRadio2.Font.Size   := 10;
+  AIRadio2.Font.Style  := [fsBold];
+  AIRadio2.OnClick     := @AIRadio2Click;
+  if AIModelIndex = 2 then begin
+    RecBadge           := TLabel.Create(WizardForm);
+    RecBadge.Parent    := AIModelPage.Surface;
+    RecBadge.Left      := 144;
+    RecBadge.Top       := RowY + 3;
+    RecBadge.AutoSize  := True;
+    RecBadge.Caption   := 'recommended';
+    RecBadge.Font.Name := 'Segoe UI';
+    RecBadge.Font.Size := 9;
+    RecBadge.Font.Color := $E5464F;
+  end;
+  SpecLabel             := TLabel.Create(WizardForm);
+  SpecLabel.Parent      := AIModelPage.Surface;
+  SpecLabel.Left        := 20;
+  SpecLabel.Top         := RowY + 21;
+  SpecLabel.AutoSize    := True;
+  SpecLabel.Caption     := '8 billion parameters  ·  Requires 16 GB+ RAM or 4 GB+ GPU VRAM  ·  ~5 GB download';
+  SpecLabel.Font.Name   := 'Segoe UI';
+  SpecLabel.Font.Size   := 9;
+  SpecLabel.Font.Color  := $888888;
+
+  // Row 3 — llama3.2:3b
+  RowY := RowY + 48;
+  AIRadio3             := TRadioButton.Create(WizardForm);
+  AIRadio3.Parent      := AIModelPage.Surface;
+  AIRadio3.Left        := 0;
+  AIRadio3.Top         := RowY;
+  AIRadio3.Width       := 140;
+  AIRadio3.Height      := 20;
+  AIRadio3.Caption     := 'llama3.2:3b';
+  AIRadio3.Font.Name   := 'Segoe UI';
+  AIRadio3.Font.Size   := 10;
+  AIRadio3.Font.Style  := [fsBold];
+  AIRadio3.OnClick     := @AIRadio3Click;
+  if AIModelIndex = 3 then begin
+    RecBadge           := TLabel.Create(WizardForm);
+    RecBadge.Parent    := AIModelPage.Surface;
+    RecBadge.Left      := 144;
+    RecBadge.Top       := RowY + 3;
+    RecBadge.AutoSize  := True;
+    RecBadge.Caption   := 'recommended';
+    RecBadge.Font.Name := 'Segoe UI';
+    RecBadge.Font.Size := 9;
+    RecBadge.Font.Color := $E5464F;
+  end;
+  SpecLabel             := TLabel.Create(WizardForm);
+  SpecLabel.Parent      := AIModelPage.Surface;
+  SpecLabel.Left        := 20;
+  SpecLabel.Top         := RowY + 21;
+  SpecLabel.AutoSize    := True;
+  SpecLabel.Caption     := '3 billion parameters  ·  Requires 8 GB+ RAM  ·  ~2 GB download';
+  SpecLabel.Font.Name   := 'Segoe UI';
+  SpecLabel.Font.Size   := 9;
+  SpecLabel.Font.Color  := $888888;
+
+  // Pre-select the hardware-detected model
+  case AIModelIndex of
+    0: AIRadio0.Checked := True;
+    1: AIRadio1.Checked := True;
+    2: AIRadio2.Checked := True;
+    3: AIRadio3.Checked := True;
+  end;
+
+  // Page 4 — Celebration (after install)
+  CelebrationPage := CreateCustomPage(
+    wpInfoAfter,
+    'You''re all set!',
+    'TaskMesh is installed and ready to use.'
+  );
+
+  // Panel covering the entire surface.
+  // Note: Windows visual styles prevent TPanel.Color from painting a custom dark
+  // background on Win10/11, so we use a white panel and dark brand text colours
+  // for reliable rendering. The page header above carries the brand indigo via
+  // the banner BMP.
   CelebPanel := TPanel.Create(WizardForm);
   CelebPanel.Parent := CelebrationPage.Surface;
   CelebPanel.Left   := 0;
   CelebPanel.Top    := 0;
   CelebPanel.Width  := CelebrationPage.SurfaceWidth;
   CelebPanel.Height := CelebrationPage.SurfaceHeight;
-  // White background — matches the website's light aesthetic so dark text is readable.
   CelebPanel.Color      := $FFFFFF;
   CelebPanel.BevelOuter := bvNone;
   CelebPanel.BevelInner := bvNone;
 
+  // Main heading — brand-600 #4F46E5, large and bold (website primary button/hero colour)
   CelebTitle := TLabel.Create(WizardForm);
   CelebTitle.Parent     := CelebPanel;
-  CelebTitle.Caption    := 'You''re all set.';
+  CelebTitle.Caption    := 'You''re all set  ✓';
   CelebTitle.Font.Name  := 'Segoe UI';
-  CelebTitle.Font.Size  := 18;
+  CelebTitle.Font.Size  := 20;
   CelebTitle.Font.Style := [fsBold];
-  CelebTitle.Font.Color := $CA3843;   // brand-700 #4338CA — dark indigo heading
+  CelebTitle.Font.Color := $E5464F;   // brand-600 #4F46E5 — website primary
   CelebTitle.AutoSize   := True;
   CelebTitle.Left       := 24;
-  CelebTitle.Top        := 20;
+  CelebTitle.Top        := 16;
 
-  CelebCheck1 := TLabel.Create(WizardForm);
-  CelebCheck1.Parent    := CelebPanel;
-  CelebCheck1.Caption   := '✓  Server running on http://localhost:4000';
-  CelebCheck1.Font.Name := 'Segoe UI';
-  CelebCheck1.Font.Size := 11;
-  CelebCheck1.Font.Color := $812E31;  // brand-900 #312E81 — deep indigo, readable on white
-  CelebCheck1.AutoSize  := True;
-  CelebCheck1.Left      := 24;
-  CelebCheck1.Top       := 70;
-
-  CelebCheck2 := TLabel.Create(WizardForm);
-  CelebCheck2.Parent    := CelebPanel;
-  CelebCheck2.Caption   := '✓  Database initialized';
-  CelebCheck2.Font.Name := 'Segoe UI';
-  CelebCheck2.Font.Size := 11;
-  CelebCheck2.Font.Color := $812E31;  // brand-900
-  CelebCheck2.AutoSize  := True;
-  CelebCheck2.Left      := 24;
-  CelebCheck2.Top       := 96;
-
-  CelebCheck3 := TLabel.Create(WizardForm);
-  CelebCheck3.Parent    := CelebPanel;
-  CelebCheck3.Caption   := '✓  Shortcuts created';
-  CelebCheck3.Font.Name := 'Segoe UI';
-  CelebCheck3.Font.Size := 11;
-  CelebCheck3.Font.Color := $812E31;  // brand-900
-  CelebCheck3.AutoSize  := True;
-  CelebCheck3.Left      := 24;
-  CelebCheck3.Top       := 122;
-
-  CelebTagline := TLabel.Create(WizardForm);
-  CelebTagline.Parent    := CelebPanel;
-  CelebTagline.Caption   := 'Click "Finish" to open TaskMesh in your browser.';
-  CelebTagline.Font.Name := 'Segoe UI';
-  CelebTagline.Font.Size := 9;
-  CelebTagline.Font.Color := $E5464F;  // brand-600 #4F46E5 — medium indigo tagline
-  CelebTagline.AutoSize  := True;
-  CelebTagline.Left      := 24;
-  CelebTagline.Top       := 165;
+  // Launch checkbox — near-black body text matches website body copy; OnClick syncs button
+  CelebLaunchCheck := TCheckBox.Create(WizardForm);
+  CelebLaunchCheck.Parent    := CelebPanel;
+  CelebLaunchCheck.Caption   := 'Open TaskMesh in my browser';
+  CelebLaunchCheck.Checked   := True;
+  CelebLaunchCheck.Font.Name := 'Segoe UI';
+  CelebLaunchCheck.Font.Size := 10;
+  CelebLaunchCheck.Font.Color := $271811;   // near-black #111827 — website body text
+  CelebLaunchCheck.Width     := 280;
+  CelebLaunchCheck.Left      := 22;
+  CelebLaunchCheck.Top       := 68;
+  CelebLaunchCheck.OnClick   := @CelebLaunchCheckClick;
 end;
 
 // ── InitializeWizard ─────────────────────────────────────────────────────────
@@ -588,6 +942,10 @@ begin
   // Apply Segoe UI across the entire wizard (matches website's Inter font)
   WizardForm.Font.Name := 'Segoe UI';
   WizardForm.Font.Size := 9;
+
+  // Detect hardware before building pages so AIModelPage can pre-select the
+  // recommended model tier. Uses WMI — safe to call this early in the wizard.
+  RunHardwareDetection;
 
   CreateCustomPages;
 end;
@@ -605,36 +963,45 @@ begin
   end;
 end;
 
-// ── PrepareToInstall — warn about AI download size ────────────────────────────
+// ── PrepareToInstall ──────────────────────────────────────────────────────────
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   NeedsRestart := False;
-
-  if IsComponentSelected('ai') then begin
-    // In quiet mode, AI was selected via /COMPONENTS=ai — user already consented
-    // programmatically. Skip the confirmation dialog.
-    if IsQuietMode() then
-      Exit;
-    if MsgBox(
-      'AI Features require downloading approximately 2.5 GB of data.' + #13#10 + #13#10 +
-      'This includes the Ollama AI engine and a language model. A progress' + #13#10 +
-      'window will appear automatically — the download may take 20-40 minutes' + #13#10 +
-      'depending on your internet connection.' + #13#10 + #13#10 +
-      'Continue with AI Features?',
-      mbConfirmation, MB_YESNO) = IDNO then
-      Result := 'Installation cancelled. Run setup again and uncheck ' +
-                '"AI Features" on the Components page to install without AI.';
-  end;
 end;
 
 // ── Uninstall: ask about Ollama, then clean up extras ─────────────────────────
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  TelEnabled: String;
+  InstallID:  String;
+  PsArgs:     String;
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then begin
     RemoveOllama := False;
     // Read DataDir before the registry key is deleted later in the uninstall sequence.
     DataDirToRemove := RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir');
+
+    // Fire uninstall telemetry before the registry key is removed.
+    TelEnabled := RegGetStr(HKLM, 'Software\TaskMesh', 'TelemetryEnabled');
+    InstallID  := RegGetStr(HKLM, 'Software\TaskMesh', 'InstallID');
+    if (TelEnabled = '1') and (InstallID <> '') then begin
+      PsArgs :=
+        '-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ' +
+        '"try { Invoke-RestMethod' +
+        ' -Uri ''https://us.i.posthog.com/capture/''' +
+        ' -Method Post -ContentType ''application/json'' -TimeoutSec 5' +
+        ' -Body ''{' +
+          '"api_key":"phc_9lzpeA1FHtJ5eDcenDnZgNb9LarR3NCGCXC26PhzM2v",' +
+          '"event":"app_uninstalled",' +
+          '"distinct_id":"' + InstallID + '",' +
+          '"properties":{}' +
+        '}''' +
+        ' } catch {}"';
+      Exec('powershell.exe', PsArgs, '', SW_HIDE, ewNoWait, ResultCode);
+    end;
+
     // Only prompt in interactive mode -- skip MsgBox during silent uninstall.
     if (not UninstallSilent()) and
        (RegGetStr(HKLM, 'Software\TaskMesh', 'InstalledOllama') = '1') then begin
@@ -666,19 +1033,16 @@ end;
 // ── CurStepChanged ────────────────────────────────────────────────────────────
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ActualPort:    String;
   ShortcutPath:  String;
   AppIconPath:   String;
   VbsPath:       String;
+  ResultCode:    Integer;
 begin
   if CurStep = ssPostInstall then begin
+    InstallCompleted := True;
+
     // Read the actual port written by install-services.ps1 (may differ from 4000
     // if the script detected a conflict and auto-assigned a free port).
-    ActualPort := RegGetStr(HKLM, 'Software\TaskMesh', 'Port');
-    if ActualPort = '' then ActualPort := '4000';
-    CelebCheck1.Caption := '✓  Server running on http://localhost:' + ActualPort;
-    CelebCheck3.Caption := '✓  Shortcuts created';
-
     // Use the VBS launcher so shortcuts never open a terminal window.
     VbsPath     := ExpandConstant('{app}\scripts\launch-taskmesh.vbs');
     AppIconPath := ExpandConstant('{app}\taskmesh.ico');
@@ -699,17 +1063,71 @@ begin
         'Software\Microsoft\Windows\CurrentVersion\Run',
         '{#AppName}',
         '"' + ExpandConstant('{sys}\wscript.exe') + '" "' + VbsPath + '"');
+
+    // Store telemetry preference and a unique InstallID in the registry so the
+    // uninstaller can fire a PostHog event even after the app is removed.
+    RegWriteStringValue(HKLM, 'Software\{#AppName}', 'TelemetryEnabled', GetTelemetryEnabled(''));
+    Exec('powershell.exe',
+      '-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ' +
+      '"$id = [System.Guid]::NewGuid().ToString(); ' +
+      'Set-ItemProperty -Path ''HKLM:\Software\{#AppName}'' -Name InstallID -Value $id -Force"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
+end;
+
+// ── CurPageChanged ────────────────────────────────────────────────────────────
+// Rename the Next/Finish button to "Launch TaskMesh" on the celebration page so
+// the primary CTA is clear to non-technical users.
+procedure CurPageChanged(CurPageID: Integer);
+var
+  ExtraWidth: Integer;
+begin
+  if (CelebrationPage <> nil) and (CurPageID = CelebrationPage.ID) then begin
+    // Widen the button so "Launch TaskMesh" isn't clipped
+    ExtraWidth := 45;
+    WizardForm.NextButton.Left  := WizardForm.NextButton.Left  - ExtraWidth;
+    WizardForm.NextButton.Width := WizardForm.NextButton.Width + ExtraWidth;
+    // Set initial label based on checkbox state (pre-checked = Launch TaskMesh)
+    if (CelebLaunchCheck <> nil) and CelebLaunchCheck.Checked then
+      WizardForm.NextButton.Caption := 'Launch TaskMesh'
+    else
+      WizardForm.NextButton.Caption := 'Close';
+  end else
+    WizardForm.NextButton.Caption := SetupMessage(msgButtonNext);
 end;
 
 // ── ShouldSkipPage ────────────────────────────────────────────────────────────
 // 1. Always hide the built-in Select Tasks page — our OptionsPage handles it.
-// 2. In quiet mode, skip every wizard page — all values come from CLI params.
+// 2. Skip AIModelPage when AI is not selected, or /OLLAMAMODEL= was supplied.
+// 3. In quiet mode, skip every wizard page — all values come from CLI params.
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   if PageID = wpSelectTasks then begin
     Result := True;
     Exit;
   end;
+
+  if (AIModelPage <> nil) and (PageID = AIModelPage.ID) then begin
+    // Skip when AI component not selected, a model was forced via CLI, or quiet mode.
+    Result := (not IsComponentSelected('ai'))
+           or (ExpandConstant('{param:OLLAMAMODEL|}') <> '')
+           or IsQuietMode();
+    Exit;
+  end;
+
   Result := IsQuietMode();
+end;
+
+// ── DeinitializeSetup ─────────────────────────────────────────────────────────
+// Called when the installer exits. If the install completed successfully and
+// the user left the launch checkbox checked, open TaskMesh in the browser.
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+begin
+  if not InstallCompleted then Exit;
+  if (CelebLaunchCheck = nil) or (not CelebLaunchCheck.Checked) then Exit;
+  Exec(ExpandConstant('{sys}\wscript.exe'),
+       '"' + ExpandConstant('{app}\scripts\launch-taskmesh.vbs') + '"',
+       ExpandConstant('{app}'), SW_SHOW, ewNoWait, ResultCode);
 end;

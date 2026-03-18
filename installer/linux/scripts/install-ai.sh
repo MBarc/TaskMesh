@@ -13,7 +13,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${1:?Usage: $0 <install-dir> [ollama-model]}"
-OLLAMA_MODEL="${2:-qwen2.5:3b}"
+OLLAMA_MODEL="${2:-}"   # empty = auto-detect via detect-hardware.sh
 LOG_DIR="${INSTALL_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
@@ -23,6 +23,36 @@ step() {
     echo "  $1"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
+
+# ── Step 0: Detect hardware and select Ollama model ──────────────────────────
+step "Detecting hardware for AI model selection"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DETECT_SCRIPT="${SCRIPT_DIR}/detect-hardware.sh"
+
+if [[ -z "${OLLAMA_MODEL}" ]]; then
+    if [[ -x "${DETECT_SCRIPT}" ]]; then
+        OLLAMA_MODEL="$("${DETECT_SCRIPT}")"
+        echo "Hardware detection selected model: ${OLLAMA_MODEL}"
+    else
+        echo "WARNING: detect-hardware.sh not found — using default: llama3.1:8b"
+        OLLAMA_MODEL="llama3.1:8b"
+    fi
+else
+    echo "Using specified model: ${OLLAMA_MODEL}"
+fi
+
+if [[ "${OLLAMA_MODEL}" == "disabled" ]]; then
+    echo ""
+    echo "WARNING: Your system has less than 8 GB of RAM."
+    echo "         AI features require at least 8 GB RAM and will not be installed."
+    echo "         You can enable them later by upgrading your hardware and"
+    echo "         re-running the AI setup from the TaskMesh settings panel."
+    echo ""
+    exit 0
+fi
+
+echo "Selected model: ${OLLAMA_MODEL}"
 
 # ── Step 1: Find or install Ollama ────────────────────────────────────────────
 step "Setting up Ollama AI engine"
@@ -105,19 +135,54 @@ if [[ "${READY}" != "true" ]]; then
 fi
 
 # ── Step 4: Pull AI language model ───────────────────────────────────────────
+# Tier order for fallback on pull failure (highest to lowest).
+ALL_TIERS=("qwen2.5:32b" "qwen2.5:14b" "llama3.1:8b" "llama3.2:3b")
+MODEL_READY=false
+
 step "Downloading AI language model: ${OLLAMA_MODEL}"
-echo "(This is approximately 2 GB — please wait)"
+echo "(This may be 2–20 GB depending on the model — please wait)"
 echo ""
 
-MODEL_READY=false
-if "${OLLAMA_EXE}" pull "${OLLAMA_MODEL}"; then
+pull_model() {
+    "${OLLAMA_EXE}" pull "$1"
+}
+
+if pull_model "${OLLAMA_MODEL}"; then
     echo ""
     echo "Model '${OLLAMA_MODEL}' ready."
     MODEL_READY=true
 else
-    echo "WARNING: Model pull failed."
-    echo "         AI language features will not work until the model is downloaded."
-    echo "         Retry later: ollama pull ${OLLAMA_MODEL}"
+    echo "WARNING: Model pull failed for '${OLLAMA_MODEL}'."
+
+    # Find this tier in the list and try the next one down.
+    tier_idx=-1
+    for i in "${!ALL_TIERS[@]}"; do
+        if [[ "${ALL_TIERS[$i]}" == "${OLLAMA_MODEL}" ]]; then
+            tier_idx=${i}
+            break
+        fi
+    done
+
+    fallback_pulled=false
+    if (( tier_idx >= 0 && tier_idx < ${#ALL_TIERS[@]} - 1 )); then
+        FALLBACK="${ALL_TIERS[$(( tier_idx + 1 ))]}"
+        echo "Retrying with fallback model: ${FALLBACK}"
+        echo ""
+        if pull_model "${FALLBACK}"; then
+            OLLAMA_MODEL="${FALLBACK}"
+            echo ""
+            echo "Model '${OLLAMA_MODEL}' ready (fallback)."
+            MODEL_READY=true
+            fallback_pulled=true
+        else
+            echo "WARNING: Fallback model pull also failed."
+        fi
+    fi
+
+    if [[ "${MODEL_READY}" != "true" ]]; then
+        echo "         AI language features will not work until a model is downloaded."
+        echo "         Retry later: ollama pull ${OLLAMA_MODEL}"
+    fi
 fi
 
 # ── Step 5: Register TaskMesh-AI service ─────────────────────────────────────

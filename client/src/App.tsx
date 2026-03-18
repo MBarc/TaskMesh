@@ -1,17 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useBoardStore } from './stores/boardStore';
 import { useThemeStore } from './stores/themeStore';
 import { useUiPrefsStore } from './stores/uiPrefsStore';
+import { useShortcutStore, SHORTCUT_DEFS, normalizeKey } from './stores/shortcutStore';
+import { useSortStore } from './stores/sortStore';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { BoardSelector } from './components/BoardSelector';
 import { TodoTable } from './components/TodoTable';
 import { AIExtractor } from './components/AIExtractor';
 import { ThemePicker } from './components/ThemePicker';
+import { NotificationCenter } from './components/NotificationCenter';
 import { ColumnEditor } from './components/ColumnEditor';
 import { TranscriptOverlay } from './components/TranscriptOverlay';
 import { ApiKeySettings } from './components/ApiKeySettings';
 import { ApiDocsSettings } from './components/ApiDocsSettings';
 import { DocumentationPage } from './components/DocumentationPage';
 import { DocumentationTab } from './components/DocumentationTab';
+import { DocumentationSettingsPanel } from './components/DocumentationSettings';
 import { AdoPushModal } from './components/AdoPushModal';
 import { SnowPushModal } from './components/SnowPushModal';
 import { AdoImportModal } from './components/AdoImportModal';
@@ -23,11 +28,17 @@ import { CustomThemeImport } from './components/CustomThemeImport';
 import { ConnectorImport } from './components/ConnectorImport';
 import { ThemeStudio } from './components/ThemeStudio';
 import { ArchiveSettings } from './components/ArchiveSettings';
+import { PrivacySettings } from './components/PrivacySettings';
+import { UpdateSettings } from './components/UpdateSettings';
+import { ReleaseNotesModal } from './components/ReleaseNotesModal';
+import { ExportModal } from './components/ExportModal';
 import { ArchiveBoard } from './components/ArchiveBoard';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
 import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
-import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink } from 'lucide-react';
+import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield } from 'lucide-react';
 import * as api from './api';
 
 // Static pages + dynamic connector pages (connector:{id} or connector:{id}:{instanceId})
@@ -50,14 +61,75 @@ function MarketplacePlaceholder({ title, description }: { title: string; descrip
   );
 }
 
+function formatKey(key: string): string {
+  return key
+    .split('+')
+    .map((part) => {
+      switch (part) {
+        case 'ctrl':   return 'Ctrl';
+        case 'shift':  return 'Shift';
+        case 'alt':    return 'Alt';
+        case 'left':   return '←';
+        case 'right':  return '→';
+        case 'up':     return '↑';
+        case 'down':   return '↓';
+        case 'delete': return 'Del';
+        case 'escape': return 'Esc';
+        case 'enter':  return 'Enter';
+        case 'arrows': return '↑ ↓ ← →';
+        case 'click':  return 'Click';
+        default:       return part.toUpperCase();
+      }
+    })
+    .join('+');
+}
+
+// KeyCapture: small inline component to record a new key combo
+function KeyCapture({ onCapture }: { onCapture: (key: string) => void }) {
+  const [capturing, setCapturing] = useState(false);
+
+  if (capturing) {
+    return (
+      <div
+        tabIndex={0}
+        autoFocus
+        className="px-2 py-1 text-xs text-text-muted bg-surface-tertiary border border-primary-500 rounded ring-2 ring-primary-500/30 outline-none cursor-text min-w-[130px] text-center"
+        onKeyDown={(e) => {
+          e.preventDefault();
+          // Ignore modifier-only presses
+          if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+          const key = normalizeKey(e);
+          if (key === 'escape') { setCapturing(false); return; }
+          onCapture(key);
+          setCapturing(false);
+        }}
+        onBlur={() => setCapturing(false)}
+      >
+        Press new shortcut…
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setCapturing(true)}
+      className="px-2 py-1 text-xs text-primary-500 border border-primary-300 rounded hover:bg-primary-50 transition-colors"
+    >
+      Edit
+    </button>
+  );
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const saved = localStorage.getItem('taskmesh_activeTab');
-    return (saved === 'tasks' || saved === 'ai' || saved === 'docs' || saved === 'settings') ? saved : 'tasks';
+    return (saved === 'tasks' || saved === 'ai' || saved === 'docs') ? saved : 'tasks';
   });
   const [showColumnEditor, setShowColumnEditor] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
   const [activeSettingsPage, setActiveSettingsPage] = useState<SettingsPage>('appearance');
-  const { currentBoard, isArchiveView, fetchBoards, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard } = useBoardStore();
+  const { currentBoard, boards, isArchiveView, fetchBoards, fetchBoard, addTask, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard, favoriteBoardDeletedNotice, clearFavoriteBoardDeletedNotice, setHighlightedTaskId } = useBoardStore();
   const [isEditingBoardName, setIsEditingBoardName] = useState(false);
   const [editBoardName, setEditBoardName] = useState('');
   const [showThemeImport, setShowThemeImport] = useState(false);
@@ -66,12 +138,36 @@ function App() {
   const customThemes = useThemeStore((state) => state.customThemes);
   const setTheme = useThemeStore((state) => state.setTheme);
   const removeCustomTheme = useThemeStore((state) => state.removeCustomTheme);
+  const initializeThemes = useThemeStore((state) => state.initialize);
+  const initializeSorts = useSortStore((state) => state.initialize);
   const showNewBadge = useUiPrefsStore((s) => s.showNewBadge);
   const setShowNewBadge = useUiPrefsStore((s) => s.setShowNewBadge);
+  const triggerNewBoard = useUiPrefsStore((s) => s.triggerNewBoard);
   const [emailQueueCount, setEmailQueueCount] = useState(0);
   const [connectorManifests, setConnectorManifests] = useState<ConnectorManifest[]>([]);
 
+  const shortcutOverrides = useShortcutStore((s) => s.overrides);
+  const setShortcutOverride = useShortcutStore((s) => s.setOverride);
+  const resetShortcutOverride = useShortcutStore((s) => s.resetOverride);
+  const resetAllShortcuts = useShortcutStore((s) => s.resetAll);
+
+  const [showBoardExportModal, setShowBoardExportModal] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
+  const [exportAllError, setExportAllError] = useState<string | null>(null);
+
   const emailColumnEnabled = currentBoard?.columns.some(c => c.type === 'EMAIL') ?? false;
+
+  async function handleExportAll() {
+    setExportingAll(true);
+    setExportAllError(null);
+    try {
+      await api.exportAll();
+    } catch (err) {
+      setExportAllError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExportingAll(false);
+    }
+  }
 
   const fetchEmailQueueCount = useCallback(async () => {
     try {
@@ -89,7 +185,6 @@ function App() {
     return () => clearInterval(interval);
   }, [emailColumnEnabled, emailImportModal, fetchEmailQueueCount]);
 
-  // Re-fetch count when import modal closes (user may have imported some)
   useEffect(() => {
     if (!emailImportModal && emailColumnEnabled) {
       fetchEmailQueueCount();
@@ -103,6 +198,33 @@ function App() {
   useEffect(() => {
     fetchBoards();
   }, [fetchBoards]);
+
+  useEffect(() => {
+    initializeThemes();
+  }, [initializeThemes]);
+
+  useEffect(() => {
+    initializeSorts();
+  }, [initializeSorts]);
+
+  const appLoadedFired = useRef(false);
+  useEffect(() => {
+    if (appLoadedFired.current) return;
+    appLoadedFired.current = true;
+    api.appLoaded({ theme: themeId }).catch(() => {});
+  }, []);
+
+  const isFirstThemeRender = useRef(true);
+  useEffect(() => {
+    if (isFirstThemeRender.current) { isFirstThemeRender.current = false; return; }
+    api.captureEvent('theme_changed', { theme: themeId }).catch(() => {});
+  }, [themeId]);
+
+  const isFirstTabRender = useRef(true);
+  useEffect(() => {
+    if (isFirstTabRender.current) { isFirstTabRender.current = false; return; }
+    api.captureEvent('tab_switched', { tab: activeTab }).catch(() => {});
+  }, [activeTab]);
 
   const refreshConnectors = useCallback(() => {
     getConnectorManifests()
@@ -118,10 +240,54 @@ function App() {
     document.documentElement.setAttribute('data-theme', themeId);
   }, [themeId]);
 
+  // Global keyboard shortcut handlers
+  const shortcutHandlers = useMemo(() => {
+    const currentIndex = boards.findIndex((b) => b.id === currentBoard?.id);
+
+    return {
+      'global-search': () => {
+        setShowSearchModal(true);
+      },
+      'new-task': () => {
+        if (currentBoard) addTask();
+      },
+      'new-board': () => {
+        triggerNewBoard();
+      },
+      'show-shortcuts': () => {
+        setShowShortcutsModal(true);
+      },
+      'prev-board': () => {
+        if (boards.length === 0) return;
+        const idx = currentIndex <= 0 ? boards.length - 1 : currentIndex - 1;
+        fetchBoard(boards[idx].id);
+      },
+      'next-board': () => {
+        if (boards.length === 0) return;
+        const idx = currentIndex >= boards.length - 1 ? 0 : currentIndex + 1;
+        fetchBoard(boards[idx].id);
+      },
+      'board-1': () => { if (boards[0]) fetchBoard(boards[0].id); },
+      'board-2': () => { if (boards[1]) fetchBoard(boards[1].id); },
+      'board-3': () => { if (boards[2]) fetchBoard(boards[2].id); },
+      'board-4': () => { if (boards[3]) fetchBoard(boards[3].id); },
+      'board-5': () => { if (boards[4]) fetchBoard(boards[4].id); },
+      'board-6': () => { if (boards[5]) fetchBoard(boards[5].id); },
+      'board-7': () => { if (boards[6]) fetchBoard(boards[6].id); },
+      'board-8': () => { if (boards[7]) fetchBoard(boards[7].id); },
+      'board-9': () => { if (boards[8]) fetchBoard(boards[8].id); },
+      'ai-extract': () => {
+        setActiveTab('ai');
+      },
+    };
+  }, [boards, currentBoard, addTask, fetchBoard, triggerNewBoard]);
+
+  useKeyboardShortcuts(shortcutHandlers);
+
   const tabs = [
     { id: 'tasks' as Tab, label: 'Tasks', icon: ListTodo },
     { id: 'ai' as Tab, label: 'Smart Extract', icon: Sparkles },
-    { id: 'docs' as Tab, label: 'Documentation', icon: FileText },
+    { id: 'docs' as Tab, label: 'Wiki', icon: FileText },
     { id: 'settings' as Tab, label: 'Settings', icon: Settings },
   ];
 
@@ -132,15 +298,20 @@ function App() {
     {
       label: 'General',
       items: [
-        { id: 'appearance', label: 'Appearance', icon: Paintbrush },
-        { id: 'archive', label: 'Archive', icon: Archive },
-        { id: 'connectors', label: 'Connectors', icon: Plug },
+        { id: 'appearance',         label: 'Appearance',          icon: Paintbrush },
+        { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts',  icon: Keyboard },
+        { id: 'archive',            label: 'Archive',             icon: Archive },
+        { id: 'data',               label: 'Data',                icon: Database },
+        { id: 'privacy',            label: 'Privacy',             icon: Shield },
+        { id: 'updates',            label: 'Updates',             icon: Download },
+        { id: 'wiki-settings',      label: 'Wiki',                icon: FileText },
+        { id: 'connectors',         label: 'Connectors',          icon: Plug },
       ],
     },
     {
       label: 'Help',
       items: [
-        { id: 'how-to', label: 'How-to Guides', icon: ExternalLink, href: 'https://taskmesh.co/docs' },
+        { id: 'how-to',        label: 'How-to Guides',       icon: ExternalLink, href: 'https://taskmesh.co/docs' },
         { id: 'connector-docs', label: 'Connector SDK Docs', icon: ExternalLink, href: 'https://taskmesh.co/docs/what-is-a-connector' },
       ],
     },
@@ -154,14 +325,13 @@ function App() {
     {
       label: 'Marketplace',
       items: [
-        { id: 'browse-connectors', label: 'Browse Connectors', icon: Store },
-        { id: 'browse-themes', label: 'Browse Themes', icon: Palette },
+        { id: 'browse-connectors',    label: 'Browse Connectors',    icon: Store },
+        { id: 'browse-themes',        label: 'Browse Themes',        icon: Palette },
         { id: 'browse-doc-templates', label: 'Browse Doc Templates', icon: FileText },
       ],
     },
   ];
 
-  // Build connector categories dynamically from manifests
   type ConnectorCardDef = { pageId: string; label: string; icon: typeof Plug; description: string; brandColor: string };
   type ConnectorCategory = { label: string; connectors: ConnectorCardDef[] };
 
@@ -172,7 +342,6 @@ function App() {
       const cards: ConnectorCardDef[] = [];
 
       if (m.multiInstance && m.instances && m.instanceMeta) {
-        // Multi-instance connector: create a card per instance
         for (const instId of m.instances) {
           const meta = m.instanceMeta[instId];
           if (!meta) continue;
@@ -185,7 +354,6 @@ function App() {
           });
         }
       } else {
-        // Single-instance connector
         cards.push({
           pageId: `connector:${m.id}`,
           label: m.name,
@@ -214,6 +382,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-surface">
+      <ReleaseNotesModal />
       {/* Header */}
       <header className="bg-surface-secondary border-b border-border">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -222,7 +391,18 @@ function App() {
               <h1 className="text-xl font-bold text-text-primary">TaskMesh <span className="text-xs font-normal text-text-secondary">All Your Work. One Place.</span></h1>
               <BoardSelector />
             </div>
-            <ThemePicker />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSearchModal(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface-tertiary border border-border text-text-secondary hover:text-text-primary hover:border-primary-500/50 transition-colors text-sm"
+                title="Search (Ctrl+K)"
+              >
+                <Search className="w-3.5 h-3.5" />
+                <span className="text-xs">Search</span>
+              </button>
+              <NotificationCenter />
+              <ThemePicker />
+            </div>
           </div>
         </div>
       </header>
@@ -248,6 +428,23 @@ function App() {
           </nav>
         </div>
       </div>
+
+      {/* Favorite board deleted notice */}
+      {favoriteBoardDeletedNotice && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-4">
+            <p className="text-sm text-amber-800">
+              Your favorite board was deleted. Select a new one to set as your favorite.
+            </p>
+            <button
+              onClick={clearFavoriteBoardDeletedNotice}
+              className="shrink-0 p-1 rounded hover:bg-amber-100 text-amber-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
@@ -352,6 +549,13 @@ function App() {
                   </button>
                 )}
                 <button
+                  onClick={() => setShowBoardExportModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-tertiary rounded-md transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
                   onClick={() => setShowColumnEditor(true)}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-tertiary rounded-md transition-colors"
                 >
@@ -376,7 +580,6 @@ function App() {
                   </h4>
                   <ul className="space-y-0.5">
                     {section.items.map((item) => {
-                      // Check if this item or any of its sub-pages is active
                       const isConnectorSubPage = activeSettingsPage.startsWith('connector:');
                       const isStudioSubPage = activeSettingsPage === 'studio';
                       const isActive = activeSettingsPage === item.id || (item.id === 'connectors' && isConnectorSubPage) || (item.id === 'appearance' && isStudioSubPage);
@@ -521,9 +724,113 @@ function App() {
                 </div>
               )}
 
+              {/* Keyboard Shortcuts Settings */}
+              {activeSettingsPage === 'keyboard-shortcuts' && (
+                <div className="space-y-4">
+                  <div className="bg-surface-secondary rounded-lg p-4 border border-border">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-sm font-medium text-text-primary">Keyboard Shortcuts</h3>
+                        <p className="text-xs text-text-muted mt-0.5">Customize key bindings to fit your workflow. Press Esc to cancel a capture.</p>
+                      </div>
+                      {Object.keys(shortcutOverrides).length > 0 && (
+                        <button
+                          onClick={resetAllShortcuts}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-tertiary rounded-md transition-colors"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Reset all
+                        </button>
+                      )}
+                    </div>
+
+                    {(['Global', 'Board Navigation', 'Table Navigation', 'Task', 'AI'] as const).map((category) => {
+                      const items = SHORTCUT_DEFS.filter((d) => d.category === category);
+                      return (
+                        <div key={category} className="mb-5 last:mb-0">
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">{category}</h4>
+                          <div className="space-y-1">
+                            {items.map((def) => {
+                              const canRebind = def.overridable !== false;
+                              const key = shortcutOverrides[def.id] ?? def.defaultKey;
+                              const isOverridden = !!shortcutOverrides[def.id];
+                              return (
+                                <div key={def.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                                  <span className="text-sm text-text-primary">{def.description}</span>
+                                  <div className="flex items-center gap-2">
+                                    {!canRebind && (
+                                      <span className="text-xs text-text-muted px-1.5 py-0.5 bg-surface-tertiary border border-border rounded">fixed</span>
+                                    )}
+                                    <kbd className="px-2 py-0.5 text-xs font-mono bg-surface-tertiary border border-border rounded text-text-secondary whitespace-nowrap">
+                                      {formatKey(key)}
+                                    </kbd>
+                                    {canRebind && (
+                                      <KeyCapture
+                                        onCapture={(newKey) => setShortcutOverride(def.id, newKey)}
+                                      />
+                                    )}
+                                    {canRebind && isOverridden && (
+                                      <button
+                                        onClick={() => resetShortcutOverride(def.id)}
+                                        className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-tertiary transition-colors"
+                                        title="Reset to default"
+                                      >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Archive Settings */}
               {activeSettingsPage === 'archive' && (
                 <ArchiveSettings />
+              )}
+
+              {/* Data */}
+              {activeSettingsPage === 'data' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-base font-semibold text-text-primary mb-1">Export All Data</h3>
+                    <p className="text-sm text-text-secondary mb-4">
+                      Download a ZIP file containing all your boards, tasks, and column definitions.
+                      Suitable for backups and migrating to a new installation.
+                    </p>
+                    <button
+                      onClick={handleExportAll}
+                      disabled={exportingAll}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                    >
+                      {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      {exportingAll ? 'Preparing export…' : 'Download All Data'}
+                    </button>
+                    {exportAllError && (
+                      <p className="text-sm text-red-500 mt-2">{exportAllError}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Privacy Settings */}
+              {activeSettingsPage === 'privacy' && (
+                <PrivacySettings />
+              )}
+
+              {activeSettingsPage === 'updates' && (
+                <UpdateSettings />
+              )}
+
+              {/* Wiki Settings */}
+              {activeSettingsPage === 'wiki-settings' && (
+                <DocumentationSettingsPanel />
               )}
 
               {/* Theme Studio */}
@@ -576,7 +883,6 @@ function App() {
                     </div>
                   ))}
 
-                  {/* Documentation link */}
                   <a
                     href="https://taskmesh.co/docs/what-is-a-connector"
                     target="_blank"
@@ -603,14 +909,12 @@ function App() {
               {activeSettingsPage.startsWith('connector:') && (() => {
                 const parts = activeSettingsPage.split(':');
                 const connectorId = parts[1];
-                const instanceId = parts[2]; // undefined for single-instance
+                const instanceId = parts[2];
                 const manifest = connectorManifests.find(m => m.id === connectorId);
                 if (!manifest) return null;
 
-                // Resolve the settings component name
                 let componentName: string | undefined;
                 if (manifest.multiInstance && instanceId) {
-                  // Multi-instance: check per-instance components first, then shared
                   componentName =
                     manifest.settings.instanceSettingsComponents?.[instanceId] ||
                     manifest.settings.customSettingsComponent;
@@ -619,8 +923,6 @@ function App() {
                 }
 
                 const SettingsComp = componentName ? getSettingsComponent(componentName) : null;
-
-                // Show banners for specific connectors
                 const showExclusiveBanner = manifest.exclusiveActive;
                 const showDocBanner = manifest.id === 'documentation';
 
@@ -702,9 +1004,36 @@ function App() {
         )}
       </main>
 
+      {/* Board Export Modal */}
+      {showBoardExportModal && currentBoard && (
+        <ExportModal
+          scope="board"
+          board={currentBoard}
+          onClose={() => setShowBoardExportModal(false)}
+        />
+      )}
+
       {/* Column Editor Modal */}
       {showColumnEditor && (
         <ColumnEditor onClose={() => setShowColumnEditor(false)} />
+      )}
+
+      {/* Keyboard Shortcuts Modal */}
+      {showShortcutsModal && (
+        <KeyboardShortcutsModal onClose={() => setShowShortcutsModal(false)} />
+      )}
+
+      {/* Global Search Modal */}
+      {showSearchModal && (
+        <GlobalSearchModal
+          onClose={() => setShowSearchModal(false)}
+          onNavigate={(boardId, taskId) => {
+            setShowSearchModal(false);
+            setActiveTab('tasks');
+            setHighlightedTaskId(taskId);
+            fetchBoard(boardId);
+          }}
+        />
       )}
 
       {/* Transcript Overlay */}

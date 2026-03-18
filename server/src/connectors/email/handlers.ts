@@ -42,7 +42,7 @@ const handlers: ConnectorHandlers = {
     // GET /settings/:provider
     router.get('/settings/:provider', async (req, res) => {
       try {
-        const { provider } = req.params;
+        const { provider } = req.params as Record<string, string>;
 
         if (provider !== 'outlook' && provider !== 'gmail') {
           return res.status(400).json({ error: 'Provider must be outlook or gmail' });
@@ -216,7 +216,7 @@ const handlers: ConnectorHandlers = {
           where: { boardId },
           _max: { order: true },
         });
-        let nextOrder = (maxTaskOrder._max.order ?? -1) + 1;
+        let nextOrder = (maxTaskOrder._max?.order ?? -1) + 1;
 
         const createdTasks = [];
 
@@ -430,7 +430,7 @@ const handlers: ConnectorHandlers = {
     // GET /thread/:threadId
     router.get('/thread/:threadId', async (req, res) => {
       try {
-        const { threadId } = req.params;
+        const { threadId } = req.params as Record<string, string>;
         const messages = await prisma.emailMessage.findMany({
           where: { threadId },
           orderBy: { receivedAt: 'asc' },

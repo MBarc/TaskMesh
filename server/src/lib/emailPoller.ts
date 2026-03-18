@@ -10,7 +10,7 @@ export function startEmailPoller(): void {
   // Check active settings and start polling
   prisma.emailSettings
     .findFirst({ where: { active: true } })
-    .then((settings) => {
+    .then((settings: Awaited<ReturnType<typeof prisma.emailSettings.findFirst>>) => {
       if (!settings) {
         console.log('[EmailPoller] No active email connector — poller not started');
         return;

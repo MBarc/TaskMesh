@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { requireScope } from '../lib/apiKeyAuth.js';
+import { capture } from '../lib/telemetry.js';
 
 export const taskRoutes = Router();
 
@@ -19,9 +21,9 @@ export const taskRoutes = Router();
  *       201:
  *         description: Task created
  */
-taskRoutes.post('/boards/:boardId/tasks', async (req, res) => {
+taskRoutes.post('/boards/:boardId/tasks', requireScope('tasks:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
     const { cellValues } = req.body;
 
     // Get max order for this board
@@ -30,7 +32,7 @@ taskRoutes.post('/boards/:boardId/tasks', async (req, res) => {
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const task = await prisma.task.create({
       data: {
@@ -48,6 +50,7 @@ taskRoutes.post('/boards/:boardId/tasks', async (req, res) => {
       },
     });
 
+    capture('task_created', { source: 'manual' });
     res.status(201).json(task);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -71,9 +74,9 @@ taskRoutes.post('/boards/:boardId/tasks', async (req, res) => {
  *       200:
  *         description: Task updated
  */
-taskRoutes.put('/:id', async (req, res) => {
+taskRoutes.put('/:id', requireScope('tasks:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { cellValues } = req.body;
 
     // Update cell values using upsert
@@ -106,6 +109,7 @@ taskRoutes.put('/:id', async (req, res) => {
       },
     });
 
+    capture('task_updated');
     res.json(task);
   } catch (error) {
     console.error('Error updating task:', error);
@@ -129,9 +133,9 @@ taskRoutes.put('/:id', async (req, res) => {
  *       204:
  *         description: Task deleted
  */
-taskRoutes.delete('/:id', async (req, res) => {
+taskRoutes.delete('/:id', requireScope('tasks:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     // Check if archive is enabled
     const appSettings = await prisma.appSettings.findUnique({
@@ -209,6 +213,7 @@ taskRoutes.delete('/:id', async (req, res) => {
       where: { id },
     });
 
+    capture('task_deleted');
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting task:', error);
@@ -232,9 +237,9 @@ taskRoutes.delete('/:id', async (req, res) => {
  *       200:
  *         description: Tasks reordered
  */
-taskRoutes.put('/boards/:boardId/tasks/reorder', async (req, res) => {
+taskRoutes.put('/boards/:boardId/tasks/reorder', requireScope('tasks:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
     const { taskIds } = req.body;
 
     if (!Array.isArray(taskIds)) {
@@ -260,6 +265,7 @@ taskRoutes.put('/boards/:boardId/tasks/reorder', async (req, res) => {
       },
     });
 
+    capture('tasks_reordered');
     res.json(tasks);
   } catch (error) {
     console.error('Error reordering tasks:', error);
@@ -283,9 +289,9 @@ taskRoutes.put('/boards/:boardId/tasks/reorder', async (req, res) => {
  *       201:
  *         description: Tasks created
  */
-taskRoutes.post('/boards/:boardId/tasks/bulk', async (req, res) => {
+taskRoutes.post('/boards/:boardId/tasks/bulk', requireScope('tasks:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
     const { tasks } = req.body;
 
     if (!Array.isArray(tasks)) {
@@ -298,7 +304,7 @@ taskRoutes.post('/boards/:boardId/tasks/bulk', async (req, res) => {
       _max: { order: true },
     });
 
-    let currentOrder = (maxOrder._max.order ?? -1) + 1;
+    let currentOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const createdTasks = [];
 
@@ -321,6 +327,7 @@ taskRoutes.post('/boards/:boardId/tasks/bulk', async (req, res) => {
       createdTasks.push(task);
     }
 
+    capture('task_created', { source: 'connector_import', count: createdTasks.length });
     res.status(201).json(createdTasks);
   } catch (error) {
     console.error('Error bulk creating tasks:', error);

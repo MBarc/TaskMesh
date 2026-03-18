@@ -179,6 +179,8 @@ export interface ColumnOption {
   order: number;
 }
 
+export type ColumnAlignment = 'auto' | 'left' | 'center' | 'right';
+
 export interface Column {
   id: string;
   boardId: string;
@@ -186,6 +188,7 @@ export interface Column {
   type: ColumnType;
   order: number;
   requiredForCompletion: boolean;
+  alignment: ColumnAlignment;
   options: ColumnOption[];
   createdAt: string;
 }
@@ -244,11 +247,13 @@ export interface ApiKey {
   createdAt: string;
   revokedAt: string | null;
   usageCount: number;
+  scopes: string[];
 }
 
 export interface CreateApiKeyRequest {
   name: string;
   expiresAt: string;
+  scopes?: string[];
 }
 
 export interface CreateApiKeyResponse {
@@ -337,14 +342,12 @@ export interface DocumentationTemplate {
   name: string;
   content: string;
   namingConvention: string;
-  customVariables?: { name: string; description: string }[];
 }
 
 export interface DocumentationSettings {
   subfolder: string;
   localPath: string;
   templates: DocumentationTemplate[] | null;
-  customVariables: { name: string; description: string }[] | null;
 }
 
 export interface DocumentDraft {
@@ -357,4 +360,63 @@ export interface DocumentDraft {
   status: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error';
+export type NotificationSource = 'local' | 'broadcast';
+
+export interface Notification {
+  id: string;
+  source: NotificationSource;
+  broadcastId: string | null;
+  title: string;
+  message: string;
+  severity: NotificationSeverity;
+  read: boolean;
+  dismissed: boolean;
+  createdAt: string;
+}
+
+// Wiki (Documentation File Explorer) types
+export interface DocFileStub {
+  id: string;
+  boardId: string;
+  name: string;
+  folderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocFile extends DocFileStub {
+  content: string;
+  folder?: { id: string; name: string; parentFolderId: string | null; parentFolder?: { name: string } | null } | null;
+}
+
+export interface DocFolder {
+  id: string;
+  boardId: string;
+  name: string;
+  parentFolderId: string | null;
+  subfolders: DocFolder[];
+  files: DocFileStub[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocTree {
+  folders: DocFolder[];
+  files: DocFileStub[];
+}
+
+export type TranscriptionJobStatus = 'queued' | 'transcribing' | 'extracting' | 'done' | 'error' | 'cancelled';
+
+export interface TranscriptionJob {
+  id: string;
+  status: TranscriptionJobStatus;
+  fileName: string;
+  fileSize: number;
+  transcript: string | null;
+  errorMessage: string | null;
+  extractionId: string | null;
+  createdAt: string;
 }

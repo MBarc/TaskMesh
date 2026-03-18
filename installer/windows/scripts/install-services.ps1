@@ -9,8 +9,47 @@
 
 param(
     [Parameter(Mandatory)][string]$AppDir,
-    [Parameter(Mandatory)][string]$DataDir
+    [Parameter(Mandatory)][string]$DataDir,
+    [string]$TelemetryEnabled = '0',
+    [string]$AppVersion = '1.0.0'
 )
+
+# ── Helpers (defined first so they're available everywhere in the script) ──────
+
+# Run any executable fully hidden: CREATE_NO_WINDOW + redirected stdout/stderr.
+# PowerShell itself was launched by ps-launcher.exe with CREATE_NO_WINDOW and
+# redirected pipes, so it has no console.  Without this helper, child console
+# apps (nssm.exe, node.exe, sc.exe) would call AllocConsole() and create a
+# visible window on Windows 11 + Windows Terminal.
+function Invoke-Hidden {
+    param([string]$Exe, [string[]]$ExeArgs, [string]$WorkingDirectory = '')
+    $argStr = ($ExeArgs | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + $_.Replace('"', '\"') + '"' } else { $_ }
+    }) -join ' '
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($Exe)
+    $psi.Arguments              = $argStr
+    $psi.WorkingDirectory       = if ($WorkingDirectory) { $WorkingDirectory } else { (Get-Location).ProviderPath }
+    $psi.CreateNoWindow         = $true
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $p   = [System.Diagnostics.Process]::Start($psi)
+    # Read async to avoid deadlock when both stdout and stderr produce output.
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $p.WaitForExit()
+    $out = ($outTask.GetAwaiter().GetResult() + $errTask.GetAwaiter().GetResult()).Trim()
+    return [PSCustomObject]@{ Output = $out; ExitCode = $p.ExitCode }
+}
+
+function Invoke-Nssm {
+    param([string[]]$NssmArgs)
+    Write-Host ("NSSM: nssm " + ($NssmArgs -join " "))
+    $r = Invoke-Hidden -Exe $nssm -ExeArgs $NssmArgs
+    if ($r.Output) { Write-Host ("  output: " + $r.Output) }
+    Write-Host "  exit: $($r.ExitCode)"
+    return $r.ExitCode
+}
 
 # Ensure log directory exists and start transcript
 $logDir = Join-Path $AppDir "logs"
@@ -72,18 +111,52 @@ function Find-FreePort {
     throw "No available port found starting from $Start"
 }
 
-$Port = Find-FreePort -Start 4000
-if ($Port -ne 4000) {
-    Write-Host "Port 4000 is in use -- using port $Port instead."
+# Try port 80 first (enables http://taskmesh.localhost with no port suffix).
+# Fall back to 4000+ if port 80 is unavailable (e.g. IIS occupies it).
+$Port = $null
+try {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 80)
+    $listener.Start()
+    $listener.Stop()
+    $Port = 80
+    Write-Host "Port 80 is available -- using http://taskmesh.localhost"
+} catch {
+    Write-Host "Port 80 is not available -- falling back to 4000+"
+    $Port = Find-FreePort -Start 4000
+    if ($Port -ne 4000) {
+        Write-Host "Port 4000 is in use -- using port $Port instead."
+    }
 }
 Write-Host "Selected port: $Port"
+$appUrl = if ($Port -eq 80) { "http://taskmesh.localhost" } else { "http://taskmesh.localhost:$Port" }
+Write-Host "App URL: $appUrl"
+
+# Add taskmesh.localhost to the OS hosts file (idempotent)
+$hostsFile = "C:\Windows\System32\drivers\etc\hosts"
+$hostsEntry = "127.0.0.1   taskmesh.localhost"
+try {
+    $hostsContent = Get-Content $hostsFile -Raw -ErrorAction Stop
+    if ($hostsContent -match "taskmesh\.localhost") {
+        Write-Host "taskmesh.localhost already in hosts file -- skipping."
+    } else {
+        Add-Content $hostsFile $hostsEntry
+        Write-Host "Added taskmesh.localhost to hosts file."
+    }
+} catch {
+    Write-Warning "Could not update hosts file: $_ (continuing)"
+}
 
 # Environment values
-$env_DATABASE_URL       = "file:$dbFile"
-$env_AI_SERVICE_URL     = "http://localhost:8000"
-$env_PORT               = "$Port"
-$env_NODE_ENV           = "production"
-$env_DOCUMENTATION_PATH = Join-Path $DataDir "documentation"
+$env_DATABASE_URL            = "file:$dbFile"
+$env_AI_SERVICE_URL          = "http://localhost:8000"
+$env_PORT                    = "$Port"
+$env_NODE_ENV                = "production"
+$env_DOCUMENTATION_PATH      = Join-Path $DataDir "documentation"
+$env_TELEMETRY_ENABLED       = if ($TelemetryEnabled -eq '1') { '1' } else { '0' }
+$env_POSTHOG_API_KEY         = "phc_9lzpeA1FHtJ5eDcenDnZgNb9LarR3NCGCXC26PhzM2v"
+$env_POSTHOG_HOST            = "https://us.i.posthog.com"
+
+Write-Host "TelemetryEnabled: $env_TELEMETRY_ENABLED"
 
 if (-not (Test-Path $env_DOCUMENTATION_PATH)) {
     New-Item -ItemType Directory -Force -Path $env_DOCUMENTATION_PATH | Out-Null
@@ -97,7 +170,8 @@ try {
     Set-ItemProperty -Path $regPath -Name "AppDir"  -Value $AppDir
     Set-ItemProperty -Path $regPath -Name "DataDir" -Value $DataDir
     Set-ItemProperty -Path $regPath -Name "Port"    -Value "$Port"
-    Set-ItemProperty -Path $regPath -Name "Version" -Value "1.0.0"
+    Set-ItemProperty -Path $regPath -Name "AppUrl"  -Value $appUrl
+    Set-ItemProperty -Path $regPath -Name "Version" -Value $AppVersion
     Write-Host "Registry written OK."
 } catch {
     Write-Warning "Registry write failed: $_ (continuing)"
@@ -110,7 +184,9 @@ $env:NODE_ENV     = $env_NODE_ENV
 $savedLocation = Get-Location
 try {
     Set-Location (Join-Path $AppDir "server")
-    & $node (Join-Path $AppDir "server\node_modules\prisma\build\index.js") db push --accept-data-loss 2>&1 | Out-Null
+    $prismaJs = Join-Path $AppDir "server\node_modules\prisma\build\index.js"
+    $r = Invoke-Hidden -Exe $node -ExeArgs @($prismaJs, "db", "push", "--accept-data-loss")
+    if ($r.Output) { Write-Host $r.Output }
     if (Test-Path $dbFile) {
         Write-Host "Database initialized at: $dbFile"
     } else {
@@ -122,19 +198,7 @@ try {
     Set-Location $savedLocation
 }
 
-# Helper: run NSSM with logging
-# ErrorActionPreference is set to Continue inside this function so that NSSM's
-# stderr output (e.g. "Can't open service!") does not become a TerminatingError.
-function Invoke-Nssm {
-    param([string[]]$NssmArgs)
-    $ErrorActionPreference = "Continue"
-    Write-Host ("NSSM: nssm " + ($NssmArgs -join " "))
-    $out = & $nssm @NssmArgs 2>&1
-    $code = $LASTEXITCODE
-    if ($out) { Write-Host ("  output: " + ($out | Out-String)) }
-    Write-Host "  exit: $code"
-    return $code
-}
+# (Invoke-Hidden and Invoke-Nssm are defined at the top of the script)
 
 # Install TaskMesh-Server service
 Write-Host "Installing TaskMesh-Server service..."
@@ -189,7 +253,10 @@ try {
         "AI_SERVICE_URL=$env_AI_SERVICE_URL",
         "PORT=$env_PORT",
         "NODE_ENV=$env_NODE_ENV",
-        "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH"
+        "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH",
+        "TASKMESH_TELEMETRY_ENABLED=$env_TELEMETRY_ENABLED",
+        "POSTHOG_API_KEY=$env_POSTHOG_API_KEY",
+        "POSTHOG_HOST=$env_POSTHOG_HOST"
     )
     # $svcParamsPath is guaranteed to exist (created/verified above)
     Set-ItemProperty -Path $svcParamsPath -Name "AppEnvironmentExtra" -Value $envVars -Type MultiString
@@ -209,19 +276,17 @@ try {
     Write-Warning "Attempting sc.exe fallback..."
 
     try {
-        sc.exe stop   "TaskMesh-Server" 2>&1 | Out-Null
-        sc.exe delete "TaskMesh-Server" 2>&1 | Out-Null
+        Invoke-Hidden -Exe "sc.exe" -ExeArgs @("stop",   "TaskMesh-Server") | Out-Null
+        Invoke-Hidden -Exe "sc.exe" -ExeArgs @("delete", "TaskMesh-Server") | Out-Null
         Start-Sleep -Seconds 1
 
         Write-Host "Creating service with sc.exe..."
-        # cmd /c ensures the binPath value (with embedded quotes and spaces) is
-        # passed as a single correctly-escaped argument to sc.exe.
-        $scCmd = 'sc create "TaskMesh-Server" binPath= "\"' + $node + '\" \"' + $server + '\"" start= auto DisplayName= "TaskMesh - Server"'
-        cmd /c $scCmd
-        Write-Host "sc.exe create exit: $LASTEXITCODE"
+        $binPath = '"\"' + $node + '\" \"' + $server + '\""'
+        $r = Invoke-Hidden -Exe "sc.exe" -ExeArgs @("create", "TaskMesh-Server", "binPath=", $binPath, "start=", "auto", "DisplayName=", "TaskMesh - Server")
+        Write-Host "sc.exe create exit: $($r.ExitCode)"
 
-        sc.exe description "TaskMesh-Server" "TaskMesh Node.js server"
-        sc.exe failure "TaskMesh-Server" reset= 86400 actions= restart/5000/restart/5000/restart/5000
+        Invoke-Hidden -Exe "sc.exe" -ExeArgs @("description", "TaskMesh-Server", "TaskMesh Node.js server") | Out-Null
+        Invoke-Hidden -Exe "sc.exe" -ExeArgs @("failure", "TaskMesh-Server", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000") | Out-Null
 
         # Set environment vars in service registry
         $envVars = @(
@@ -229,15 +294,18 @@ try {
             "AI_SERVICE_URL=$env_AI_SERVICE_URL",
             "PORT=$env_PORT",
             "NODE_ENV=$env_NODE_ENV",
-            "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH"
+            "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH",
+            "TASKMESH_TELEMETRY_ENABLED=$env_TELEMETRY_ENABLED",
+            "POSTHOG_API_KEY=$env_POSTHOG_API_KEY",
+            "POSTHOG_HOST=$env_POSTHOG_HOST"
         )
         $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\TaskMesh-Server"
         if (Test-Path $svcRoot) {
             Set-ItemProperty -Path $svcRoot -Name "Environment" -Value $envVars -Type MultiString
         }
 
-        sc.exe start "TaskMesh-Server"
-        Write-Host "sc.exe fallback: service started (exit $LASTEXITCODE)"
+        $r = Invoke-Hidden -Exe "sc.exe" -ExeArgs @("start", "TaskMesh-Server")
+        Write-Host "sc.exe fallback: service started (exit $($r.ExitCode))"
     } catch {
         Write-Warning "sc.exe fallback also failed: $_"
     }
@@ -284,7 +352,7 @@ try {
 
 Write-Host ""
 Write-Host "TaskMesh install script complete."
-Write-Host "Server should be available at http://localhost:$Port"
+Write-Host "Server should be available at $appUrl"
 Write-Host "Install log: $installLog"
 
 try { Stop-Transcript | Out-Null } catch {}

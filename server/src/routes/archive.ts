@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { runCleanup } from '../lib/archiveCleaner.js';
+import { capture } from '../lib/telemetry.js';
 
 export const archiveRoutes = Router();
 
@@ -12,7 +13,7 @@ archiveRoutes.get('/settings', async (_req, res) => {
     });
 
     if (!settings) {
-      settings = { id: 'singleton', archiveEnabled: false, archiveRetentionDays: 30, createdAt: new Date(), updatedAt: new Date() };
+      settings = { id: 'singleton', archiveEnabled: false, archiveRetentionDays: 30, telemetryEnabled: false, installUUID: null, activeThemeId: 'default-light', autoUpdateEnabled: false, lastSeenVersion: null, createdAt: new Date(), updatedAt: new Date() };
     }
 
     res.json({
@@ -48,6 +49,10 @@ archiveRoutes.put('/settings', async (req, res) => {
       await prisma.archivedTask.deleteMany({});
     }
 
+    capture('archive_settings_updated', {
+      archive_enabled: settings.archiveEnabled,
+      retention_days: settings.archiveRetentionDays,
+    });
     res.json({
       archiveEnabled: settings.archiveEnabled,
       archiveRetentionDays: settings.archiveRetentionDays,
@@ -108,7 +113,7 @@ archiveRoutes.get('/tasks', async (_req, res) => {
 // POST /api/archive/tasks/:id/restore
 archiveRoutes.post('/tasks/:id/restore', async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const archived = await prisma.archivedTask.findUnique({ where: { id } });
     if (!archived) {
@@ -142,7 +147,7 @@ archiveRoutes.post('/tasks/:id/restore', async (req, res) => {
       where: { boardId: board.id },
       _max: { order: true },
     });
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     // Match snapshot columns to current board columns
     const cellValuesToCreate: { columnId: string; value: string }[] = [];
@@ -199,6 +204,7 @@ archiveRoutes.post('/tasks/:id/restore', async (req, res) => {
     // Remove from archive
     await prisma.archivedTask.delete({ where: { id } });
 
+    capture('archive_restored');
     res.json(task);
   } catch (error) {
     console.error('Error restoring archived task:', error);
@@ -209,10 +215,11 @@ archiveRoutes.post('/tasks/:id/restore', async (req, res) => {
 // DELETE /api/archive/tasks/:id
 archiveRoutes.delete('/tasks/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     await prisma.archivedTask.delete({ where: { id } });
 
+    capture('archive_task_deleted');
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting archived task:', error);

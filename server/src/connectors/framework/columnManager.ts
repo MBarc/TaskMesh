@@ -22,7 +22,7 @@ export async function ensureColumn(
     _max: { order: true },
   });
 
-  const newOrder = (maxOrder._max.order ?? -1) + 1;
+  const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
   return prisma.column.create({
     data: {

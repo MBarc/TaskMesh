@@ -8,4 +8,7 @@
     <Dependencies>com.taskmesh.core</Dependencies>
     <Default>false</Default>
     <Script>installscript.qs</Script>
+    <UserInterfaces>
+        <UserInterface>AIModelPage.qml</UserInterface>
+    </UserInterfaces>
 </Package>

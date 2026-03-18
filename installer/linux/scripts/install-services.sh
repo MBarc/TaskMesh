@@ -4,14 +4,26 @@
 # AI components are handled separately by install-ai.sh.
 # Called by the QtIFW installscript.qs after file extraction.
 #
-# Usage: install-services.sh <install-dir> <data-dir>
-#   install-dir : e.g. /opt/taskmesh
-#   data-dir    : e.g. /var/lib/taskmesh
+# Usage: install-services.sh <install-dir> <data-dir> [app-version]
+#   install-dir  : e.g. /opt/taskmesh
+#   data-dir     : e.g. /var/lib/taskmesh
+#   app-version  : e.g. 1.0.0 (optional, falls back to server/package.json)
 
 set -euo pipefail
 
-INSTALL_DIR="${1:?Usage: $0 <install-dir> <data-dir>}"
-DATA_DIR="${2:?Usage: $0 <install-dir> <data-dir>}"
+INSTALL_DIR="${1:?Usage: $0 <install-dir> <data-dir> [app-version]}"
+DATA_DIR="${2:?Usage: $0 <install-dir> <data-dir> [app-version]}"
+
+# Resolve version: prefer explicit argument, fall back to dist package.json
+if [[ -n "${3:-}" ]]; then
+    APP_VERSION="${3}"
+else
+    PKG_JSON="${INSTALL_DIR}/server/package.json"
+    if [[ -f "${PKG_JSON}" ]]; then
+        APP_VERSION=$(grep '"version"' "${PKG_JSON}" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    fi
+    APP_VERSION="${APP_VERSION:-0.0.0}"
+fi
 
 LOG_DIR="${INSTALL_DIR}/logs"
 INSTALL_LOG="${LOG_DIR}/install.log"
@@ -50,11 +62,22 @@ find_free_port() {
     echo "4000"  # fallback — the service will handle the conflict at runtime
 }
 
-PORT=$(find_free_port 4000)
-if [[ "${PORT}" != "4000" ]]; then
-    echo "Port 4000 is in use — using port ${PORT} instead."
+# Try port 80 first (enables http://taskmesh.localhost with no port suffix).
+# Fall back to 4000+ if port 80 is unavailable.
+if ! ss -tlnH "sport = :80" 2>/dev/null | grep -q "80" && \
+   ! (echo "" | timeout 1 bash -c "cat > /dev/tcp/127.0.0.1/80") 2>/dev/null; then
+    PORT=80
+    echo "Port 80 is available -- using http://taskmesh.localhost"
+else
+    echo "Port 80 is not available -- falling back to 4000+"
+    PORT=$(find_free_port 4000)
+    if [[ "${PORT}" != "4000" ]]; then
+        echo "Port 4000 is in use — using port ${PORT} instead."
+    fi
 fi
 echo "Selected port: ${PORT}"
+APP_URL=$( [[ "${PORT}" == "80" ]] && echo "http://taskmesh.localhost" || echo "http://taskmesh.localhost:${PORT}" )
+echo "App URL: ${APP_URL}"
 
 # ── Write config file ────────────────────────────────────────────────────────
 # Config is read by start-taskmesh.sh and the systemd unit on startup.
@@ -63,9 +86,19 @@ cat > /etc/taskmesh/config << EOFCONFIG
 INSTALL_DIR=${INSTALL_DIR}
 DATA_DIR=${DATA_DIR}
 PORT=${PORT}
-VERSION=1.0.0
+APP_URL=${APP_URL}
+VERSION=${APP_VERSION}
 EOFCONFIG
 echo "Config written to /etc/taskmesh/config"
+
+# Add taskmesh.localhost to the OS hosts file (idempotent)
+HOSTS_ENTRY="127.0.0.1   taskmesh.localhost"
+if grep -q "taskmesh\.localhost" /etc/hosts 2>/dev/null; then
+    echo "taskmesh.localhost already in /etc/hosts -- skipping."
+else
+    echo "${HOSTS_ENTRY}" >> /etc/hosts
+    echo "Added taskmesh.localhost to /etc/hosts."
+fi
 
 # ── Initialize SQLite database via Prisma ────────────────────────────────────
 echo "Initializing database..."
@@ -116,5 +149,5 @@ systemctl restart taskmesh-server
 
 echo ""
 echo "TaskMesh install script complete."
-echo "Server should be available at http://localhost:${PORT}"
+echo "Server should be available at ${APP_URL}"
 echo "Install log: ${INSTALL_LOG}"

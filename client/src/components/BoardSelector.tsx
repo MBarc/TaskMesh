@@ -1,8 +1,9 @@
 import { useState, useEffect, Fragment } from 'react';
 import { Menu, Transition } from '@headlessui/react';
-import { ChevronDown, Plus, Trash2, AlertTriangle, Archive } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, AlertTriangle, Archive, Star } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import { useArchiveStore } from '../stores/archiveStore';
+import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import * as api from '../api';
 
 interface DeleteConfirmState {
@@ -14,9 +15,19 @@ interface DeleteConfirmState {
 export function BoardSelector() {
   const { boards, currentBoard, isArchiveView, fetchBoard, createBoard, deleteBoard, setArchiveView } = useBoardStore();
   const { settings: archiveSettings, fetchSettings: fetchArchiveSettings } = useArchiveStore();
+  const { favoriteBoardId, setFavoriteBoardId, newBoardSignal } = useUiPrefsStore();
   const [isCreating, setIsCreating] = useState(false);
+
+  // Open the new-board input when Ctrl+B triggers it from App
+  useEffect(() => {
+    if (newBoardSignal > 0) {
+      setIsCreating(true);
+      // Focus is applied via autoFocus on the input
+    }
+  }, [newBoardSignal]);
   const [newBoardName, setNewBoardName] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
+  const [hoveredBoardId, setHoveredBoardId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchArchiveSettings();
@@ -36,6 +47,11 @@ export function BoardSelector() {
 
   const handleSelect = (boardId: string) => {
     fetchBoard(boardId);
+  };
+
+  const handleToggleFavorite = (e: React.MouseEvent, boardId: string) => {
+    e.stopPropagation();
+    setFavoriteBoardId(favoriteBoardId === boardId ? null : boardId);
   };
 
   const handleDelete = async (e: React.MouseEvent, boardId: string, boardName: string) => {
@@ -87,17 +103,37 @@ export function BoardSelector() {
                   {({ active }) => (
                     <button
                       onClick={() => handleSelect(board.id)}
+                      onMouseEnter={() => setHoveredBoardId(board.id)}
+                      onMouseLeave={() => setHoveredBoardId(null)}
                       className={`flex items-center justify-between w-full px-3 py-2 text-sm ${
                         active ? 'bg-surface-tertiary' : ''
                       } ${currentBoard?.id === board.id ? 'text-primary-500 font-medium' : 'text-text-primary'}`}
                     >
                       <span className="truncate">{board.name}</span>
-                      <button
-                        onClick={(e) => handleDelete(e, board.id, board.name)}
-                        className="p-1 hover:bg-surface-secondary rounded text-text-muted hover:text-red-500"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={(e) => handleToggleFavorite(e, board.id)}
+                          className="p-1 rounded"
+                          title={favoriteBoardId === board.id ? 'Remove from favorites' : 'Set as favorite'}
+                        >
+                          <Star
+                            className="w-3.5 h-3.5"
+                            style={
+                              favoriteBoardId === board.id
+                                ? { color: '#EAB308', fill: '#EAB308' }
+                                : hoveredBoardId === board.id
+                                  ? { color: '#EAB308', fill: 'none' }
+                                  : { color: 'transparent', fill: 'none' }
+                            }
+                          />
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(e, board.id, board.name)}
+                          className="p-1 hover:bg-surface-secondary rounded text-text-muted hover:text-red-500"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </button>
                   )}
                 </Menu.Item>

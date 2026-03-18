@@ -2,6 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { connectorsDir, registerConnector } from '../connectors/registry.js';
+import { capture } from '../lib/telemetry.js';
 
 const REQUIRED_FIELDS = ['id', 'name', 'version', 'capabilities'];
 const RESERVED_IDS = ['framework'];
@@ -93,6 +94,7 @@ connectorImportRouter.post('/', async (req, res) => {
   // Dynamically load and mount the connector without restarting
   try {
     const registeredManifest = await registerConnector(connectorDir);
+    capture('connector_installed', { connector: registeredManifest.id, connector_name: registeredManifest.name });
     return res.json({ success: true, connector: registeredManifest });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

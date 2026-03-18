@@ -56,4 +56,5 @@ goto WAIT_LOOP
 timeout /t 1 /nobreak >nul
 
 :OPEN
-start "" "http://localhost:%PORT%"
+if "%PORT%"=="80" (set "URL=http://taskmesh.localhost") else (set "URL=http://taskmesh.localhost:%PORT%")
+start "" "%URL%"

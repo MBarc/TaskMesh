@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import type { ColumnType } from '@prisma/client';
+import { requireScope } from '../lib/apiKeyAuth.js';
+import { capture } from '../lib/telemetry.js';
 
 export const columnRoutes = Router();
 
@@ -20,9 +22,9 @@ export const columnRoutes = Router();
  *       201:
  *         description: Column created
  */
-columnRoutes.post('/boards/:boardId/columns', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
     const { name, type, options } = req.body;
 
     if (!name || !type) {
@@ -35,7 +37,7 @@ columnRoutes.post('/boards/:boardId/columns', async (req, res) => {
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -58,6 +60,7 @@ columnRoutes.post('/boards/:boardId/columns', async (req, res) => {
       },
     });
 
+    capture('column_created', { type });
     res.status(201).json(column);
   } catch (error) {
     console.error('Error creating column:', error);
@@ -81,15 +84,18 @@ columnRoutes.post('/boards/:boardId/columns', async (req, res) => {
  *       200:
  *         description: Column updated
  */
-columnRoutes.put('/:id', async (req, res) => {
+columnRoutes.put('/:id', requireScope('boards:write'), async (req, res) => {
   try {
-    const { id } = req.params;
-    const { name, options, requiredForCompletion } = req.body;
+    const { id } = req.params as Record<string, string>;
+    const { name, options, requiredForCompletion, alignment } = req.body;
 
     // Update column name and optional fields
     const updateData: Record<string, unknown> = { name };
     if (typeof requiredForCompletion === 'boolean') {
       updateData.requiredForCompletion = requiredForCompletion;
+    }
+    if (typeof alignment === 'string' && ['auto', 'left', 'center', 'right'].includes(alignment)) {
+      updateData.alignment = alignment;
     }
 
     const column = await prisma.column.update({
@@ -127,6 +133,7 @@ columnRoutes.put('/:id', async (req, res) => {
       },
     });
 
+    capture('column_updated');
     res.json(updatedColumn);
   } catch (error) {
     console.error('Error updating column:', error);
@@ -150,14 +157,15 @@ columnRoutes.put('/:id', async (req, res) => {
  *       204:
  *         description: Column deleted
  */
-columnRoutes.delete('/:id', async (req, res) => {
+columnRoutes.delete('/:id', requireScope('boards:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     await prisma.column.delete({
       where: { id },
     });
 
+    capture('column_deleted');
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting column:', error);
@@ -183,9 +191,9 @@ columnRoutes.delete('/:id', async (req, res) => {
  *       201:
  *         description: SOURCE column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-source', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-source', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     // Check if a SOURCE column already exists
     const existing = await prisma.column.findFirst({
@@ -203,7 +211,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-source', async (req, res) => 
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -240,9 +248,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-source', async (req, res) => 
  *       201:
  *         description: ADO_PUSH column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-ado', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-ado', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     // Check if an ADO_PUSH column already exists
     const existing = await prisma.column.findFirst({
@@ -260,7 +268,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-ado', async (req, res) => {
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -295,9 +303,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-ado', async (req, res) => {
  *       204:
  *         description: ADO_PUSH column deleted
  */
-columnRoutes.delete('/boards/:boardId/columns/ado', async (req, res) => {
+columnRoutes.delete('/boards/:boardId/columns/ado', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'ADO_PUSH' },
@@ -334,9 +342,9 @@ columnRoutes.delete('/boards/:boardId/columns/ado', async (req, res) => {
  *       201:
  *         description: ITEM_NO column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-item-no', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-item-no', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'ITEM_NO' },
@@ -352,7 +360,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-item-no', async (req, res) =>
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -387,9 +395,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-item-no', async (req, res) =>
  *       204:
  *         description: ITEM_NO column deleted
  */
-columnRoutes.delete('/boards/:boardId/columns/item-no', async (req, res) => {
+columnRoutes.delete('/boards/:boardId/columns/item-no', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'ITEM_NO' },
@@ -426,9 +434,9 @@ columnRoutes.delete('/boards/:boardId/columns/item-no', async (req, res) => {
  *       201:
  *         description: SNOW_PUSH column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-snow-push', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-snow-push', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'SNOW_PUSH' },
@@ -444,7 +452,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-snow-push', async (req, res) 
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -479,9 +487,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-snow-push', async (req, res) 
  *       204:
  *         description: SNOW_PUSH column deleted
  */
-columnRoutes.delete('/boards/:boardId/columns/snow-push', async (req, res) => {
+columnRoutes.delete('/boards/:boardId/columns/snow-push', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'SNOW_PUSH' },
@@ -518,9 +526,9 @@ columnRoutes.delete('/boards/:boardId/columns/snow-push', async (req, res) => {
  *       201:
  *         description: EMAIL column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-email', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-email', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'EMAIL' },
@@ -536,7 +544,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-email', async (req, res) => {
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -571,9 +579,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-email', async (req, res) => {
  *       204:
  *         description: EMAIL column deleted
  */
-columnRoutes.delete('/boards/:boardId/columns/email', async (req, res) => {
+columnRoutes.delete('/boards/:boardId/columns/email', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'EMAIL' },
@@ -610,9 +618,9 @@ columnRoutes.delete('/boards/:boardId/columns/email', async (req, res) => {
  *       201:
  *         description: DOCUMENTATION column created
  */
-columnRoutes.post('/boards/:boardId/columns/ensure-documentation', async (req, res) => {
+columnRoutes.post('/boards/:boardId/columns/ensure-documentation', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'DOCUMENTATION' },
@@ -628,7 +636,7 @@ columnRoutes.post('/boards/:boardId/columns/ensure-documentation', async (req, r
       _max: { order: true },
     });
 
-    const newOrder = (maxOrder._max.order ?? -1) + 1;
+    const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
     const column = await prisma.column.create({
       data: {
@@ -663,9 +671,9 @@ columnRoutes.post('/boards/:boardId/columns/ensure-documentation', async (req, r
  *       204:
  *         description: DOCUMENTATION column deleted
  */
-columnRoutes.delete('/boards/:boardId/columns/documentation', async (req, res) => {
+columnRoutes.delete('/boards/:boardId/columns/documentation', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
 
     const existing = await prisma.column.findFirst({
       where: { boardId, type: 'DOCUMENTATION' },
@@ -700,9 +708,9 @@ columnRoutes.delete('/boards/:boardId/columns/documentation', async (req, res) =
  *       200:
  *         description: Columns reordered
  */
-columnRoutes.put('/boards/:boardId/columns/reorder', async (req, res) => {
+columnRoutes.put('/boards/:boardId/columns/reorder', requireScope('boards:write'), async (req, res) => {
   try {
-    const { boardId } = req.params;
+    const { boardId } = req.params as Record<string, string>;
     const { columnIds } = req.body;
 
     if (!Array.isArray(columnIds)) {
@@ -730,6 +738,7 @@ columnRoutes.put('/boards/:boardId/columns/reorder', async (req, res) => {
       },
     });
 
+    capture('columns_reordered');
     res.json(columns);
   } catch (error) {
     console.error('Error reordering columns:', error);

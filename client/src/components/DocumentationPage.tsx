@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Loader2, Check, Sparkles, Type, FileText } from 'lucide-react';
+import { ArrowLeft, Loader2, Check, Sparkles, Type, FileText, HelpCircle } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -14,7 +14,7 @@ import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
-import type { DocumentationTemplate, DocumentationSettings } from '../types';
+import type { DocumentationTemplate } from '../types';
 
 type ToolbarTab = 'ai' | 'style' | 'template';
 
@@ -43,7 +43,7 @@ export function DocumentationPage() {
   const [submitFeedback, setSubmitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [toolbarTab, setToolbarTab] = useState<ToolbarTab>('style');
   const [templates, setTemplates] = useState<DocumentationTemplate[]>([]);
-  const [settings, setSettings] = useState<DocumentationSettings | null>(null);
+  const [wikiPath, setWikiPath] = useState('Wiki');
   const [aiLoading, setAiLoading] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -104,10 +104,7 @@ export function DocumentationPage() {
   // Load settings and templates
   useEffect(() => {
     api.getDocumentationSettings().then((s) => {
-      if (s) {
-        setSettings(s);
-        setTemplates(s.templates || []);
-      }
+      if (s) setTemplates(s.templates || []);
     }).catch(() => {});
   }, []);
 
@@ -129,7 +126,27 @@ export function DocumentationPage() {
         if (cellValue) {
           try {
             const docData = JSON.parse(cellValue);
-            if (docData.filePath) {
+            if (docData.docFileId) {
+              // New format: load from the wiki
+              const file = await api.getDocFile(docData.docFileId);
+              setMarkdown(file.content);
+              setFileName(file.name);
+              lastSavedContent.current = file.content;
+              // Build the wiki path from folder info
+              if (file.folder) {
+                const parentName = file.folder.parentFolder?.name;
+                setWikiPath(parentName
+                  ? `Wiki / ${parentName} / ${file.folder.name}`
+                  : `Wiki / ${file.folder.name}`);
+              } else {
+                setWikiPath('Wiki');
+              }
+              if (editor) {
+                const html = marked.parse(file.content, { async: false }) as string;
+                editor.commands.setContent(html, { emitUpdate: false });
+              }
+            } else if (docData.filePath) {
+              // Legacy format: load from filesystem path
               const result = await api.readDocument(docData.filePath);
               setMarkdown(result.content);
               setFileName(docData.fileName?.replace(/\.md$/, '') || taskTitle || 'Untitled');
@@ -194,13 +211,7 @@ export function DocumentationPage() {
           },
         });
       }
-      const safeName = fileName.replace(/[<>:"/\\|?*]/g, '_');
-      const fullFileName = safeName.endsWith('.md') ? safeName : `${safeName}.md`;
-      const normalizedPath = (settings?.localPath || '').replace(/\\/g, '/');
-      const filePath = settings?.subfolder
-        ? `${normalizedPath}/${settings.subfolder}/${fullFileName}`
-        : `${normalizedPath}/${fullFileName}`;
-      setSubmitFeedback({ type: 'success', message: `Document saved to ${filePath}` });
+      setSubmitFeedback({ type: 'success', message: 'Document saved — visible in the Wiki tab.' });
       setTimeout(() => closeDocumentationPage(), 1500);
     } catch (err: any) {
       setSubmitFeedback({ type: 'error', message: err.message || 'Failed to save document' });
@@ -209,29 +220,12 @@ export function DocumentationPage() {
     }
   };
 
-  const substituteVariables = (text: string): string => {
-    let result = text;
-    result = result.replace(/\{task_name\}/g, taskTitle);
-    result = result.replace(/\{date_created\}/g, new Date().toISOString().split('T')[0]);
-    result = result.replace(/\{board_name\}/g, currentBoard?.name || '');
-    if (documentationPage?.cellValues && currentBoard) {
-      currentBoard.columns.forEach((col) => {
-        const val = documentationPage.cellValues[col.id] || '';
-        const varName = col.name.toLowerCase().replace(/\s+/g, '_');
-        result = result.replace(new RegExp(`\\{${varName}\\}`, 'g'), val);
-      });
-    }
-    return result;
-  };
-
   const handleSelectTemplate = (tpl: DocumentationTemplate) => {
-    const content = substituteVariables(tpl.content);
-    setMarkdown(content);
-    const name = substituteVariables(tpl.namingConvention || tpl.name);
-    setFileName(name);
+    setMarkdown(tpl.content);
+    setFileName(tpl.namingConvention?.trim() || taskTitle || 'Untitled');
     activePane.current = 'left';
     if (editor) {
-      const html = marked.parse(content, { async: false }) as string;
+      const html = marked.parse(tpl.content, { async: false }) as string;
       editor.commands.setContent(html, { emitUpdate: false });
     }
   };
@@ -287,6 +281,23 @@ export function DocumentationPage() {
     }
   };
 
+  const buildRowContext = (): string => {
+    const lines: string[] = [
+      `Task: ${taskTitle}`,
+      `Board: ${currentBoard?.name || ''}`,
+      `Date: ${new Date().toISOString().split('T')[0]}`,
+    ];
+    if (currentBoard && documentationPage?.cellValues) {
+      currentBoard.columns.forEach((col) => {
+        const val = documentationPage.cellValues[col.id];
+        if (val && val.trim()) {
+          lines.push(`${col.name}: ${val}`);
+        }
+      });
+    }
+    return lines.join('\n');
+  };
+
   const handleGenerateSection = async () => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -300,7 +311,11 @@ export function DocumentationPage() {
     }
     setAiLoading(true);
     try {
-      const result = await api.generateSection({ sectionName, taskContext: taskTitle });
+      const result = await api.generateSection({
+        sectionName,
+        rowContext: buildRowContext(),
+        documentContext: markdown.trim(),
+      });
       const newText = markdown.substring(0, pos) + '\n' + result.content + '\n' + markdown.substring(pos);
       setMarkdown(newText);
       activePane.current = 'left';
@@ -325,12 +340,7 @@ export function DocumentationPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-baseline font-mono text-sm flex-1 min-w-0">
-            {settings?.localPath && (
-              <span className="text-text-muted whitespace-nowrap shrink-0">
-                {settings.localPath.replace(/\\/g, '/')}
-                {settings.subfolder ? `/${settings.subfolder}` : ''}/
-              </span>
-            )}
+            <span className="text-text-muted whitespace-nowrap shrink-0">{wikiPath} / </span>
             <input
               type="text"
               value={fileName}
@@ -453,8 +463,17 @@ export function DocumentationPage() {
       <div className="flex-1 flex min-h-0">
         {/* Left pane: raw markdown */}
         <div className="flex-1 flex flex-col border-r border-border min-w-0">
-          <div className="px-3 py-1.5 text-xs font-medium text-text-muted bg-surface-tertiary border-b border-border">
-            Markdown
+          <div className="px-3 py-1.5 text-xs font-medium text-text-muted bg-surface-tertiary border-b border-border flex items-center justify-between">
+            <span>Markdown</span>
+            <a
+              href="https://taskmesh.co/docs/markdown-formatting"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Markdown formatting guide"
+              className="text-text-muted hover:text-text-secondary transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+            </a>
           </div>
           <textarea
             ref={textareaRef}

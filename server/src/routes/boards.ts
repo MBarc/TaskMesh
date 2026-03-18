@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { requireScope } from '../lib/apiKeyAuth.js';
+import { capture } from '../lib/telemetry.js';
 
 export const boardRoutes = Router();
 
@@ -13,7 +15,7 @@ export const boardRoutes = Router();
  *       200:
  *         description: List of boards
  */
-boardRoutes.get('/', async (req, res) => {
+boardRoutes.get('/', requireScope('boards:read'), async (req, res) => {
   try {
     const boards = await prisma.board.findMany({
       orderBy: { createdAt: 'desc' },
@@ -43,9 +45,9 @@ boardRoutes.get('/', async (req, res) => {
  *       404:
  *         description: Board not found
  */
-boardRoutes.get('/:id', async (req, res) => {
+boardRoutes.get('/:id', requireScope('boards:read'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const board = await prisma.board.findUnique({
       where: { id },
       include: {
@@ -97,7 +99,7 @@ boardRoutes.get('/:id', async (req, res) => {
  *       201:
  *         description: Board created
  */
-boardRoutes.post('/', async (req, res) => {
+boardRoutes.post('/', requireScope('boards:write'), async (req, res) => {
   try {
     const { name } = req.body;
 
@@ -120,6 +122,7 @@ boardRoutes.post('/', async (req, res) => {
             }},
             { name: 'Due Date', type: 'DATE', order: 2 },
             { name: 'Source', type: 'SOURCE', order: 3 },
+            { name: 'Wiki', type: 'DOCUMENTATION', order: 4 },
           ],
         },
       },
@@ -136,6 +139,7 @@ boardRoutes.post('/', async (req, res) => {
       },
     });
 
+    capture('board_created');
     res.status(201).json(board);
   } catch (error) {
     console.error('Error creating board:', error);
@@ -168,9 +172,9 @@ boardRoutes.post('/', async (req, res) => {
  *       200:
  *         description: Board updated
  */
-boardRoutes.put('/:id', async (req, res) => {
+boardRoutes.put('/:id', requireScope('boards:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { name } = req.body;
 
     const board = await prisma.board.update({
@@ -178,6 +182,7 @@ boardRoutes.put('/:id', async (req, res) => {
       data: { name },
     });
 
+    capture('board_updated');
     res.json(board);
   } catch (error) {
     console.error('Error updating board:', error);
@@ -201,14 +206,15 @@ boardRoutes.put('/:id', async (req, res) => {
  *       204:
  *         description: Board deleted
  */
-boardRoutes.delete('/:id', async (req, res) => {
+boardRoutes.delete('/:id', requireScope('boards:write'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     await prisma.board.delete({
       where: { id },
     });
 
+    capture('board_deleted');
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting board:', error);

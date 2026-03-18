@@ -9,7 +9,11 @@ if [[ -f "${CONFIG_FILE}" ]]; then
     PORT=$(grep -m1 '^PORT=' "${CONFIG_FILE}" | cut -d= -f2 || echo "4000")
 fi
 
-URL="http://localhost:${PORT}"
+if [[ "${PORT}" == "80" ]]; then
+    URL="http://taskmesh.localhost"
+else
+    URL="http://taskmesh.localhost:${PORT}"
+fi
 
 # Prefer xdg-open, fall back to common browser executables
 if command -v xdg-open &>/dev/null; then

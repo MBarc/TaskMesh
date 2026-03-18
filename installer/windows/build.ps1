@@ -26,6 +26,17 @@ $Root      = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent  # applicatio
 $Installer = $PSScriptRoot                                          # application/installer/windows/
 $Dist      = Join-Path $Installer "dist"
 
+# ── Single source of truth: application/VERSION ───────────────────────────────
+$VersionFile = Join-Path $Root "VERSION"
+if (-not (Test-Path $VersionFile)) {
+    throw "VERSION file not found at: $VersionFile"
+}
+$AppVersion = (Get-Content $VersionFile -Raw).Trim()
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+') {
+    throw "Invalid version in VERSION file: '$AppVersion'. Expected X.Y.Z format."
+}
+Write-Host "Building TaskMesh v$AppVersion" -ForegroundColor Cyan
+
 function Step([string]$msg) {
     Write-Host ""
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
@@ -66,9 +77,9 @@ $ClientDir = Join-Path $Root "client"
 # rather than the installer's own Express server.
 $env:VITE_API_URL = ''
 Push-Location $ClientDir
-    npm ci
+    npm ci 2>&1
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm ci failed for client." }
-    npm run build
+    npm run build 2>&1
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm run build failed for client (Vite error)." }
 Pop-Location
 Remove-Item Env:VITE_API_URL -ErrorAction SilentlyContinue   # restore env for rest of build
@@ -83,12 +94,14 @@ Write-Host "Client build copied to: $ClientDist" -ForegroundColor Green
 Step "Building server (TypeScript)"
 $ServerDir = Join-Path $Root "server"
 Push-Location $ServerDir
-    npm ci
+    npm ci 2>&1
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm ci failed for server." }
-    npm run build
+    # Regenerate Prisma client so TypeScript sees current schema types before compiling.
+    npx prisma generate 2>&1 | Out-Null
+    npm run build 2>&1
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm run build failed for server (TypeScript error)." }
     # Prune to production deps only
-    npm prune --production
+    npm prune --production 2>&1
 Pop-Location
 
 $ServerDist = Join-Path $Dist "server"
@@ -99,7 +112,16 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ServerDist "prisma")      
 Copy-Item -Recurse -Force (Join-Path $ServerDir "dist\*")          (Join-Path $ServerDist "dist")
 Copy-Item -Recurse -Force (Join-Path $ServerDir "node_modules\*")  (Join-Path $ServerDist "node_modules")
 Copy-Item -Recurse -Force (Join-Path $ServerDir "prisma\*")        (Join-Path $ServerDist "prisma")
+Copy-Item -Force           (Join-Path $ServerDir "package.json")   (Join-Path $ServerDist "package.json")
 Write-Host "Server build copied to: $ServerDist" -ForegroundColor Green
+
+# Inject version from VERSION file into the dist copy of package.json.
+# The source file is left unchanged; this only affects the bundled copy.
+$distPkgJson = Join-Path $ServerDist "package.json"
+$distPkg = Get-Content $distPkgJson -Raw
+$distPkg = $distPkg -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$AppVersion`""
+Set-Content $distPkgJson $distPkg
+Write-Host "Injected v$AppVersion into dist server/package.json" -ForegroundColor Green
 
 # Patch the dist copy of schema.prisma for SQLite compatibility.
 # The source file always stays as postgresql (used by Docker).
@@ -596,6 +618,71 @@ if (-not (Test-DesignerAsset $icoPath)) {
     Write-Host "Generated taskmesh.ico (16+32+256px, transparent bg, SVG geometry)" -ForegroundColor Green
 }
 
+# ── 6b. Compile ps-launcher.exe (GUI WinExe — no console window ever created) ─
+# Root cause of the flash on Windows 11 + Windows Terminal:
+#   1. A WinExe parent with no console spawns powershell.exe with UseShellExecute=false
+#      but WITHOUT redirecting stdout/stderr.
+#   2. PowerShell inherits null/invalid I/O handles from the WinExe parent.
+#   3. PowerShell (or the .NET runtime) calls AllocConsole() to obtain valid handles.
+#   4. AllocConsole() creates a new visible console; Windows Terminal intercepts it
+#      and briefly shows a window — the flash.
+# Fix: redirect stdout/stderr to pipes in the launcher so PowerShell always receives
+# valid handles and never needs to call AllocConsole().  Async drain threads prevent
+# the pipe buffers from filling and deadlocking.
+$LauncherExe = Join-Path $Installer "scripts\ps-launcher.exe"
+$LauncherCs = @'
+using System;
+using System.Diagnostics;
+using System.Text;
+using System.Threading;
+
+class HiddenLauncher {
+    [STAThread]
+    static void Main(string[] args) {
+        if (args.Length < 1) return;
+        // Build: powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass
+        //        -WindowStyle Hidden -File "<args[0]>" [args[1..n]]
+        // Named params (start with -) are passed as-is; values are quoted.
+        var sb = new StringBuilder();
+        sb.AppendFormat(
+            "-NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{0}\"",
+            args[0]);
+        for (int i = 1; i < args.Length; i++) {
+            sb.Append(" ");
+            if (args[i].StartsWith("-")) {
+                sb.Append(args[i]);
+            } else {
+                sb.AppendFormat("\"{0}\"", args[i].Replace("\"", "\\\""));
+            }
+        }
+        var psi = new ProcessStartInfo("powershell.exe", sb.ToString()) {
+            CreateNoWindow         = true,
+            UseShellExecute        = false,
+            RedirectStandardOutput = true,   // give PowerShell a valid stdout handle
+            RedirectStandardError  = true,   // give PowerShell a valid stderr handle
+            WindowStyle            = ProcessWindowStyle.Hidden
+        };
+        var p = Process.Start(psi);
+        if (p == null) return;
+        // Drain pipes on background threads — prevents buffer deadlock when the
+        // script produces output and ensures the child never blocks on I/O.
+        var outDone = new ManualResetEventSlim(false);
+        var errDone = new ManualResetEventSlim(false);
+        p.OutputDataReceived += (s, e) => { if (e.Data == null) outDone.Set(); };
+        p.ErrorDataReceived  += (s, e) => { if (e.Data == null) errDone.Set(); };
+        p.BeginOutputReadLine();
+        p.BeginErrorReadLine();
+        p.WaitForExit();
+        outDone.Wait(5000);
+        errDone.Wait(5000);
+    }
+}
+'@
+
+if (Test-Path $LauncherExe) { Remove-Item -Force $LauncherExe }
+Add-Type -TypeDefinition $LauncherCs -OutputAssembly $LauncherExe -OutputType WindowsApplication
+Write-Host "Compiled ps-launcher.exe (hidden PowerShell launcher, WinExe)" -ForegroundColor Green
+
 # ── 7. Compile installer ─────────────────────────────────────────────────────
 Step "Compiling Inno Setup installer"
 
@@ -604,6 +691,13 @@ Step "Compiling Inno Setup installer"
 $IssSource = Join-Path $Installer "taskmesh-setup.iss"
 $IssBuild  = Join-Path $Installer "taskmesh-setup.build.iss"
 Copy-Item -Force $IssSource $IssBuild
+
+# Inject version from VERSION file into the build copy of the ISS script.
+# The source taskmesh-setup.iss is never modified.
+$issContent = Get-Content $IssBuild -Raw
+$issContent = $issContent -replace '(?m)^(#define AppVersion\s+)"[^"]*"', "`$1`"$AppVersion`""
+Set-Content $IssBuild $issContent
+Write-Host "Injected v$AppVersion into ISS build copy" -ForegroundColor Green
 
 $OutputDir = Join-Path $Installer "Output"
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

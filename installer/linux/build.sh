@@ -23,6 +23,15 @@ INSTALLER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # application/insta
 DIST="${INSTALLER}/dist"
 OUTPUT_DIR="${INSTALLER}/Output"
 
+# ── Read version from single source of truth ─────────────────────────────────
+VERSION_FILE="${ROOT}/VERSION"
+if [[ ! -f "${VERSION_FILE}" ]]; then
+    echo "ERROR: ${VERSION_FILE} not found." >&2
+    exit 1
+fi
+APP_VERSION="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+echo "Building TaskMesh v${APP_VERSION}"
+
 step() {
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -83,7 +92,10 @@ mkdir -p "${SERVER_DIST}/dist" "${SERVER_DIST}/node_modules" "${SERVER_DIST}/pri
 cp -r "${SERVER_DIR}/dist/."         "${SERVER_DIST}/dist/"
 cp -r "${SERVER_DIR}/node_modules/." "${SERVER_DIST}/node_modules/"
 cp -r "${SERVER_DIR}/prisma/."       "${SERVER_DIST}/prisma/"
-echo "Server build copied to: ${SERVER_DIST}"
+cp    "${SERVER_DIR}/package.json"   "${SERVER_DIST}/package.json"
+# Inject the build-time version into the dist copy (source stays unchanged)
+sed -i "s/\"version\"\s*:\s*\"[^\"]*\"/\"version\": \"${APP_VERSION}\"/" "${SERVER_DIST}/package.json"
+echo "Server build copied to: ${SERVER_DIST} (version: ${APP_VERSION})"
 
 # Patch the dist copy of schema.prisma for SQLite compatibility.
 # The source file always stays as postgresql (used by Docker).
@@ -304,6 +316,17 @@ if [[ -d "${DIST}/ai-service" && -f "${DIST}/ffmpeg/ffmpeg" ]]; then
 else
     echo "INFO: AI component not built — AI package data directory will be empty."
 fi
+
+# ── 6b. Inject version into QtIFW package.xml files ─────────────────────────
+for VERSION_XML in \
+    "${INSTALLER}/installer.xml" \
+    "${INSTALLER}/packages/com.taskmesh.core/meta/package.xml" \
+    "${INSTALLER}/packages/com.taskmesh.ai/meta/package.xml"; do
+    if [[ -f "${VERSION_XML}" ]]; then
+        sed -i "s|<Version>[^<]*</Version>|<Version>${APP_VERSION}</Version>|" "${VERSION_XML}"
+        echo "Version injected into: ${VERSION_XML}"
+    fi
+done
 
 # ── 7. Build QtIFW installer binary ──────────────────────────────────────────
 step "Building QtIFW installer"

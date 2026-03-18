@@ -1,6 +1,8 @@
 import { Request, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { ConnectorManifest, ConnectorHandlers, ConnectorContext } from './types.js';
+import { requireScope } from '../../lib/apiKeyAuth.js';
+import { capture } from '../../lib/telemetry.js';
 import { getSettings, saveSettings, getRawSettings, SettingsValidationError } from './settingsManager.js';
 import { ensureColumn } from './columnManager.js';
 import { generateFieldFromTask } from './aiFieldGenerator.js';
@@ -68,9 +70,9 @@ export function buildConnectorRouter(
   if (caps.has('settings')) {
     if (manifest.multiInstance) {
       // Multi-instance: GET /settings/:instanceId
-      router.get('/settings/:instanceId', async (req, res) => {
+      router.get('/settings/:instanceId', requireScope('connectors:read'), async (req, res) => {
         try {
-          const { instanceId } = req.params;
+          const { instanceId } = req.params as Record<string, string>;
           if (manifest.instances && manifest.instances.length > 0 && !manifest.instances.includes(instanceId)) {
             return res.status(400).json({ error: `Invalid instance: ${instanceId}` });
           }
@@ -83,7 +85,7 @@ export function buildConnectorRouter(
       });
     } else {
       // Singleton: GET /settings
-      router.get('/settings', async (req, res) => {
+      router.get('/settings', requireScope('connectors:read'), async (req, res) => {
         try {
           const result = await getSettings(prisma, manifest);
           res.json(result);
@@ -95,7 +97,7 @@ export function buildConnectorRouter(
     }
 
     // PUT /settings (works for both singleton and multi-instance)
-    router.put('/settings', async (req, res) => {
+    router.put('/settings', requireScope('connectors:write'), async (req, res) => {
       try {
         const data = req.body;
         const instanceId = manifest.multiInstance
@@ -107,6 +109,8 @@ export function buildConnectorRouter(
         }
 
         const result = await saveSettings(prisma, manifest, data, instanceId);
+
+        capture('connector_configured', { connector: manifest.id, connector_name: manifest.name });
 
         // Lifecycle hook
         if (handlers.onSettingsSaved) {
@@ -129,10 +133,11 @@ export function buildConnectorRouter(
 
   // ── Test Connection ──
   if (caps.has('test-connection') && handlers.testConnection) {
-    router.post('/test-connection', async (req, res) => {
+    router.post('/test-connection', requireScope('connectors:read'), async (req, res) => {
       try {
         const instanceId = manifest.multiInstance ? req.body.instanceId : undefined;
         const result = await handlers.testConnection!(ctx, instanceId);
+        capture('connector_tested', { connector: manifest.id, connector_name: manifest.name, success: result.success });
         res.json(result);
       } catch (error: any) {
         console.error(`Error testing ${manifest.name} connection:`, error);
@@ -143,10 +148,11 @@ export function buildConnectorRouter(
 
   // ── Search ──
   if (caps.has('search') && handlers.search) {
-    router.get('/search', async (req, res) => {
+    router.get('/search', requireScope('connectors:sync'), async (req, res) => {
       try {
         const query = (req.query.query as string) || '';
         const results = await handlers.search!(ctx, query, req.query as Record<string, any>);
+        capture('connector_search_run', { connector: manifest.id, connector_name: manifest.name });
         res.json(results);
       } catch (error: any) {
         console.error(`Error searching ${manifest.name}:`, error);
@@ -157,13 +163,14 @@ export function buildConnectorRouter(
 
   // ── Import ──
   if (caps.has('import') && handlers.import) {
-    router.post('/import', async (req, res) => {
+    router.post('/import', requireScope('connectors:sync'), async (req, res) => {
       try {
         const { boardId, items } = req.body;
         if (!boardId || !items?.length) {
           return res.status(400).json({ error: 'boardId and items are required' });
         }
         const result = await handlers.import!(ctx, boardId, items);
+        capture('connector_import_run', { connector: manifest.id, connector_name: manifest.name, count: items.length });
         res.json(result);
       } catch (error: any) {
         console.error(`Error importing from ${manifest.name}:`, error);
@@ -174,9 +181,10 @@ export function buildConnectorRouter(
 
   // ── Push ──
   if (caps.has('push') && handlers.push) {
-    router.post('/push', async (req, res) => {
+    router.post('/push', requireScope('connectors:push'), async (req, res) => {
       try {
         const result = await handlers.push!(ctx, req.body);
+        capture('connector_push_run', { connector: manifest.id, connector_name: manifest.name });
         res.json(result);
       } catch (error: any) {
         console.error(`Error pushing to ${manifest.name}:`, error);
@@ -191,7 +199,7 @@ export function buildConnectorRouter(
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     // GET /auth/start — redirect user to provider authorization page
-    router.get('/auth/start', async (req, res) => {
+    router.get('/auth/start', requireScope('connectors:read'), async (req, res) => {
       try {
         const instanceId = manifest.multiInstance
           ? (req.query.instanceId as string | undefined)
@@ -253,7 +261,7 @@ export function buildConnectorRouter(
     });
 
     // GET /auth/status — returns OAuth connection status (no token values)
-    router.get('/auth/status', async (req, res) => {
+    router.get('/auth/status', requireScope('connectors:read'), async (req, res) => {
       try {
         const instanceId = manifest.multiInstance
           ? (req.query.instanceId as string | undefined)
@@ -267,7 +275,7 @@ export function buildConnectorRouter(
     });
 
     // DELETE /auth/disconnect — clears stored OAuth tokens
-    router.delete('/auth/disconnect', async (req, res) => {
+    router.delete('/auth/disconnect', requireScope('connectors:write'), async (req, res) => {
       try {
         const instanceId = manifest.multiInstance
           ? (req.query.instanceId as string | undefined)
@@ -283,7 +291,7 @@ export function buildConnectorRouter(
 
   // ── AI Field Generation ──
   if (caps.has('ai-fields') && handlers.generateField) {
-    router.post('/generate-field', async (req, res) => {
+    router.post('/generate-field', requireScope('ai:reword'), async (req, res) => {
       try {
         const { taskId, fieldName, workItemType, aiInstructions, title } = req.body;
         if (!taskId || !fieldName || !aiInstructions) {

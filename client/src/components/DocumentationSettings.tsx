@@ -8,13 +8,11 @@ export function DocumentationSettingsPanel() {
   const [subfolder, setSubfolder] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [templates, setTemplates] = useState<DocumentationTemplate[]>([]);
-  const [customVariables, setCustomVariables] = useState<{ name: string; description: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [templatesExpanded, setTemplatesExpanded] = useState(false);
   const [editingTemplateIdx, setEditingTemplateIdx] = useState<number | null>(null);
-  const [variablesExpanded, setVariablesExpanded] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteContent, setPasteContent] = useState('');
@@ -28,7 +26,6 @@ export function DocumentationSettingsPanel() {
           setSubfolder(data.subfolder);
           setLocalPath(data.localPath || '');
           setTemplates(data.templates || []);
-          setCustomVariables(data.customVariables || []);
         }
       })
       .catch(() => {})
@@ -42,7 +39,6 @@ export function DocumentationSettingsPanel() {
       const saved = await api.saveDocumentationSettings({
         subfolder: subfolder.trim(),
         templates,
-        customVariables,
       });
       setSettings(saved);
       setFeedback({ type: 'success', message: 'Settings saved' });
@@ -58,8 +54,7 @@ export function DocumentationSettingsPanel() {
       id: `tpl-${Date.now()}`,
       name: '',
       content: '',
-      namingConvention: '{task_name}',
-      customVariables: [],
+      namingConvention: '',
     };
     setTemplates([...templates, newTemplate]);
     setEditingTemplateIdx(templates.length);
@@ -74,20 +69,6 @@ export function DocumentationSettingsPanel() {
   const removeTemplate = (index: number) => {
     setTemplates(templates.filter((_, i) => i !== index));
     if (editingTemplateIdx === index) setEditingTemplateIdx(null);
-  };
-
-  const addCustomVariable = () => {
-    setCustomVariables([...customVariables, { name: '', description: '' }]);
-  };
-
-  const updateCustomVariable = (index: number, updates: Partial<{ name: string; description: string }>) => {
-    const updated = [...customVariables];
-    updated[index] = { ...updated[index], ...updates };
-    setCustomVariables(updated);
-  };
-
-  const removeCustomVariable = (index: number) => {
-    setCustomVariables(customVariables.filter((_, i) => i !== index));
   };
 
   const handleImportTemplates = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,10 +86,9 @@ export function DocumentationSettingsPanel() {
 
       const result = await api.importDocumentationTemplates(templatePayloads);
       setTemplates(result.templates || []);
-      setCustomVariables(result.customVariables || []);
       setFeedback({
         type: 'success',
-        message: `Imported ${result.imported} template${result.imported !== 1 ? 's' : ''}${result.newVariables > 0 ? ` with ${result.newVariables} new variable${result.newVariables !== 1 ? 's' : ''}` : ''}`,
+        message: `Imported ${result.imported} template${result.imported !== 1 ? 's' : ''}`,
       });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to import templates' });
@@ -128,10 +108,9 @@ export function DocumentationSettingsPanel() {
         { fileName: 'pasted-template.md', content: pasteContent },
       ]);
       setTemplates(result.templates || []);
-      setCustomVariables(result.customVariables || []);
       setFeedback({
         type: 'success',
-        message: `Imported ${result.imported} template${result.imported !== 1 ? 's' : ''}${result.newVariables > 0 ? ` with ${result.newVariables} new variable${result.newVariables !== 1 ? 's' : ''}` : ''}`,
+        message: `Imported ${result.imported} template${result.imported !== 1 ? 's' : ''}`,
       });
       setPasteContent('');
       setPasteMode(false);
@@ -156,7 +135,7 @@ export function DocumentationSettingsPanel() {
   return (
     <div className="p-4">
       <h3 className="text-sm font-medium text-text-primary mb-3">
-        Documentation Settings
+        Wiki Settings
       </h3>
 
       <div className="space-y-3">
@@ -196,26 +175,6 @@ export function DocumentationSettingsPanel() {
           />
         </div>
 
-        {/* Default variables */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-1">
-            Default Variables
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            {['{task_name}', '{date_created}', '{board_name}'].map((v) => (
-              <span
-                key={v}
-                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700"
-              >
-                {v}
-              </span>
-            ))}
-          </div>
-          <p className="text-xs text-text-muted mt-1">
-            Column values are also available as variables, e.g. {'{column_name}'}.
-          </p>
-        </div>
-
         {feedback && (
           <div
             className={`text-sm px-3 py-2 rounded-md ${
@@ -237,66 +196,6 @@ export function DocumentationSettingsPanel() {
             {saving && <Loader2 className="w-3 h-3 animate-spin" />}
             Save
           </button>
-        </div>
-
-        {/* Custom Variables */}
-        <div className="border-t border-border pt-3 mt-3">
-          <button
-            onClick={() => setVariablesExpanded(!variablesExpanded)}
-            className="flex items-center gap-1.5 text-sm font-medium text-text-primary hover:text-text-secondary w-full text-left"
-          >
-            {variablesExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            Custom Variables ({customVariables.length})
-          </button>
-
-          {variablesExpanded && (
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
-                <span className="flex-1">Variable name</span>
-                <span className="flex-1 flex items-center gap-1">
-                  AI Instructions
-                  <span className="relative group">
-                    <Info className="w-3 h-3 cursor-help" />
-                    <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 px-2 py-1 text-xs bg-surface-secondary border border-border rounded shadow-lg w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                      Tell the AI what content to generate for this variable when using auto-fill
-                    </span>
-                  </span>
-                </span>
-                <span className="w-6"></span>
-              </div>
-              {customVariables.map((v, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={v.name}
-                    onChange={(e) => updateCustomVariable(idx, { name: e.target.value })}
-                    placeholder="e.g. project_type"
-                    className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-text-primary"
-                  />
-                  <input
-                    type="text"
-                    value={v.description}
-                    onChange={(e) => updateCustomVariable(idx, { description: e.target.value })}
-                    placeholder="e.g. Describe the project category"
-                    className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-text-primary"
-                  />
-                  <button
-                    onClick={() => removeCustomVariable(idx)}
-                    className="p-1 text-text-muted hover:text-red-500"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={addCustomVariable}
-                className="flex items-center gap-1 text-sm text-primary-500 hover:text-primary-600"
-              >
-                <Plus className="w-4 h-4" />
-                Add variable
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Templates */}
@@ -329,12 +228,12 @@ export function DocumentationSettingsPanel() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-text-muted mb-0.5">Naming Convention</label>
+                        <label className="block text-xs text-text-muted mb-0.5">Document Name (optional)</label>
                         <input
                           type="text"
                           value={tpl.namingConvention}
                           onChange={(e) => updateTemplate(idx, { namingConvention: e.target.value })}
-                          placeholder="{task_name} - Design"
+                          placeholder="e.g. Incident Report"
                           className="w-full px-2 py-1.5 text-xs bg-surface-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-text-primary"
                         />
                       </div>
@@ -344,7 +243,7 @@ export function DocumentationSettingsPanel() {
                           value={tpl.content}
                           onChange={(e) => updateTemplate(idx, { content: e.target.value })}
                           rows={6}
-                          placeholder="# {task_name}&#10;&#10;## Overview&#10;&#10;## Requirements&#10;"
+                          placeholder="## Overview&#10;&#10;## Steps&#10;&#10;## Notes&#10;"
                           className="w-full px-2 py-1.5 text-xs bg-surface-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-text-primary resize-y font-mono"
                         />
                       </div>
@@ -391,7 +290,7 @@ export function DocumentationSettingsPanel() {
                     value={pasteContent}
                     onChange={(e) => setPasteContent(e.target.value)}
                     rows={12}
-                    placeholder={"---\nname: Template Name\nnamingConvention: \"{task_name} - Document\"\nvariables:\n  - name: variable_name\n    description: What this variable represents\n---\n\n# {task_name}\n\nTemplate content here..."}
+                    placeholder={"---\nname: Template Name\nnamingConvention: \"Document Name\"\n---\n\n## Overview\n\n## Steps\n\n## Notes\n"}
                     className="w-full px-3 py-2 text-xs bg-surface-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 text-text-primary resize-y font-mono"
                   />
                   <div className="flex items-center gap-2">

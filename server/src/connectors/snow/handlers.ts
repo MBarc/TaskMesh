@@ -98,7 +98,7 @@ const handlers: ConnectorHandlers = {
       where: { boardId },
       _max: { order: true },
     });
-    let nextOrder = (maxTaskOrder._max.order ?? -1) + 1;
+    let nextOrder = (maxTaskOrder._max?.order ?? -1) + 1;
 
     const createdTasks = [];
 
