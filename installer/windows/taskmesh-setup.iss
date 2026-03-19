@@ -4,7 +4,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName      "TaskMesh"
-#define AppVersion   "0.0.18"
+#define AppVersion   "0.0.19"
 #define AppPublisher "TaskMesh"
 #define AppURL       "https://taskmesh.co"
 #define AppExeName   "scripts\start-taskmesh.bat"
@@ -178,7 +178,10 @@ Type: filesandordirs; Name: "{app}\nssm"
 Type: filesandordirs; Name: "{app}\sdk"
 Type: filesandordirs; Name: "{app}\scripts"
 Type: filesandordirs; Name: "{app}\updater"
-Type: filesandordirs; Name: "{app}"
+; NOTE: {app} itself is NOT listed here — unins000.exe is still running inside
+; it at this point, so DelTree would fail.  The directory is removed by a
+; detached PowerShell command in CurUninstallStepChanged (usPostUninstall)
+; which fires after the uninstaller has fully exited.
 
 ; ─── [INI] ────────────────────────────────────────────────────────────────────
 ; desktop.ini tells Windows Explorer to use the TaskMesh logo as the folder icon
@@ -1078,6 +1081,17 @@ begin
     // Remove user data directory (database, documentation folder).
     if (DataDirToRemove <> '') and DirExists(DataDirToRemove) then
       DelTree(DataDirToRemove, True, True, True);
+    // Remove the install directory itself.  We cannot do this via [UninstallDelete]
+    // because unins000.exe is still running inside {app} at that point — Windows
+    // refuses to delete a directory containing a running executable.
+    // Instead, launch a detached PowerShell that waits 3 seconds (enough for the
+    // uninstaller to exit) then force-removes the directory tree.
+    Exec('powershell.exe',
+      '-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ' +
+      '"Start-Sleep -Seconds 3; ' +
+      'Remove-Item -LiteralPath ''' + ExpandConstant('{app}') + ''' ' +
+      '-Recurse -Force -ErrorAction SilentlyContinue"',
+      '', SW_HIDE, ewNoWait, ResultCode);
   end;
 end;
 
