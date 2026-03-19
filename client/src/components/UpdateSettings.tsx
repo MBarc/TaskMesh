@@ -124,28 +124,32 @@ export function UpdateSettings() {
     <div className="space-y-4">
       {/* Applying overlay card */}
       {isApplying && (
-        <div className="bg-primary-500/10 border border-primary-500/30 rounded-lg p-4 space-y-3">
+        <div className={`border rounded-lg p-4 space-y-3 ${
+          serverDown
+            ? 'bg-amber-500/10 border-amber-500/40'
+            : 'bg-primary-500/10 border-primary-500/30'
+        }`}>
           <div className="flex items-start gap-3">
-            <RefreshCw className="w-4 h-4 text-primary-500 shrink-0 mt-0.5 animate-spin" />
+            <RefreshCw className={`w-4 h-4 shrink-0 mt-0.5 animate-spin ${serverDown ? 'text-amber-500' : 'text-primary-500'}`} />
             <div>
               <p className="text-sm font-medium text-text-primary">
                 {applyState === 'applying' && 'Starting update…'}
                 {applyState === 'waiting' && !serverDown && 'Downloading update…'}
-                {applyState === 'waiting' && serverDown && 'Installing… TaskMesh will restart automatically'}
+                {applyState === 'waiting' && serverDown && 'Connection interrupted — this is expected'}
                 {applyState === 'done' && 'Restarting…'}
               </p>
               <p className="text-xs text-text-muted mt-0.5">
                 {applyState === 'applying' && 'Contacting update server.'}
                 {applyState === 'waiting' && !serverDown && 'Fetching the latest release from GitHub.'}
-                {applyState === 'waiting' && serverDown && "Don't close this tab — the page will reload when it's ready."}
+                {applyState === 'waiting' && serverDown && 'The installer is running and TaskMesh is restarting. Your browser may show "Unable to connect" — ignore it and do not close this tab. The page will reload automatically.'}
                 {applyState === 'done' && 'Almost there…'}
               </p>
             </div>
           </div>
           {/* Progress bar */}
-          <div className="w-full bg-primary-500/20 rounded-full h-1.5 overflow-hidden">
+          <div className={`w-full rounded-full h-1.5 overflow-hidden ${serverDown ? 'bg-amber-500/20' : 'bg-primary-500/20'}`}>
             <div
-              className="h-full bg-primary-500 rounded-full transition-all duration-700 ease-out"
+              className={`h-full rounded-full transition-all duration-700 ease-out ${serverDown ? 'bg-amber-500' : 'bg-primary-500'}`}
               style={{ width: `${Math.round(progress)}%` }}
             />
           </div>

@@ -4,7 +4,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName      "TaskMesh"
-#define AppVersion   "0.0.17"
+#define AppVersion   "0.0.18"
 #define AppPublisher "TaskMesh"
 #define AppURL       "https://taskmesh.co"
 #define AppExeName   "scripts\start-taskmesh.bat"
