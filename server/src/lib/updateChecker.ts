@@ -194,12 +194,18 @@ export async function applyUpdate(): Promise<void> {
     // Prefer the pre-installed updater script (always present when auto-update is enabled).
     // Falls back to spawning a fresh download directly if the script is somehow missing.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
+    // ps-launcher.exe is a compiled WinExe that redirects PowerShell's stdout/stderr to
+    // drained pipes, giving PS valid I/O handles so it never calls AllocConsole(). This is
+    // required when spawned from a Windows service (Session 0) where AllocConsole() fails
+    // silently, killing the PowerShell process before it executes a single line of script.
+    const psLauncher = path.join(__dirname, '../../../scripts/ps-launcher.exe');
     if (fs.existsSync(updaterScript)) {
-      const child = spawn('powershell.exe', [
-        '-NonInteractive', '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', updaterScript,
-      ], { detached: true, stdio: 'ignore' });
+      const useLauncher = fs.existsSync(psLauncher);
+      const cmd = useLauncher ? psLauncher : 'powershell.exe';
+      const args = useLauncher
+        ? [updaterScript]
+        : ['-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterScript];
+      const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
       child.on('error', (err) => console.error('[applyUpdate] spawn error:', err));
       child.unref();
       return;
