@@ -133,6 +133,7 @@ Environment=PORT=${PORT}
 Environment=DOCUMENTATION_PATH=${DOCS_DIR}
 Restart=on-failure
 RestartSec=5
+KillMode=process
 StandardOutput=append:${LOG_DIR}/taskmesh-server-stdout.log
 StandardError=append:${LOG_DIR}/taskmesh-server-stderr.log
 

@@ -1,6 +1,6 @@
 {
   "name": "taskmesh-server",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "TaskMesh Backend",
   "main": "dist/index.js",
   "scripts": {
