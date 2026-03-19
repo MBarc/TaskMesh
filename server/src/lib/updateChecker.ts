@@ -209,9 +209,10 @@ export async function applyUpdate(): Promise<void> {
       //     Windows 10/11 (task XML never written to System32\Tasks).
       //   - Win32_Process.Create() via WMI: creates the process in the CALLER's user context,
       //     not as SYSTEM — so the installer runs without elevation and exits with code 2 (UAC).
-      const launcher = spawn('powershell.exe', [
-        '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-Command', 'Start-ScheduledTask -TaskName "TaskMesh-ApplyUpdate"',
+      // Use schtasks /Run (RPC-based) rather than Start-ScheduledTask (CIM/WMI)
+      // so the trigger works even from inside the NSSM Job Object.
+      const launcher = spawn('schtasks', [
+        '/Run', '/TN', 'TaskMesh-ApplyUpdate',
       ], { detached: true, stdio: 'ignore' });
       launcher.on('error', (err) => console.error('[applyUpdate] task trigger error:', err));
       launcher.unref();
