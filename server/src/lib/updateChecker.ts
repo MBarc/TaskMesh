@@ -194,20 +194,40 @@ export async function applyUpdate(): Promise<void> {
     // Prefer the pre-installed updater script (always present when auto-update is enabled).
     // Falls back to spawning a fresh download directly if the script is somehow missing.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
-    // ps-launcher.exe is a compiled WinExe that redirects PowerShell's stdout/stderr to
-    // drained pipes, giving PS valid I/O handles so it never calls AllocConsole(). This is
-    // required when spawned from a Windows service (Session 0) where AllocConsole() fails
-    // silently, killing the PowerShell process before it executes a single line of script.
-    const psLauncher = path.join(__dirname, '../../../scripts/ps-launcher.exe');
     if (fs.existsSync(updaterScript)) {
-      const useLauncher = fs.existsSync(psLauncher);
-      const cmd = useLauncher ? psLauncher : 'powershell.exe';
-      const args = useLauncher
-        ? [updaterScript]
-        : ['-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', updaterScript];
-      const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
-      child.on('error', (err) => console.error('[applyUpdate] spawn error:', err));
-      child.unref();
+      // Launch via Task Scheduler so the update script runs outside the NSSM Job Object.
+      //
+      // Root cause chain:
+      //   1. This service runs under NSSM, which wraps the process in a Windows Job Object.
+      //   2. Spawning PowerShell (or ps-launcher.exe) directly creates child processes that
+      //      inherit the same Job Object.
+      //   3. When the update script calls `nssm stop` to stop this service, NSSM closes the
+      //      Job Object. Windows kills every process in the Job — including the PowerShell
+      //      running the update script — before the installer ever runs.
+      //   4. Task Scheduler runs tasks in a separate process tree, outside the Job, so the
+      //      script survives the service shutdown and can complete the install.
+      const taskName = 'TaskMesh-ApplyUpdate';
+      const taskCmd = `powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${updaterScript}"`;
+
+      // Step 1: register the task (schtasks.exe is a lightweight RPC call, completes in <1s)
+      const create = spawn('schtasks', [
+        '/Create', '/F',
+        '/RU', 'SYSTEM',
+        '/SC', 'ONCE',
+        '/ST', '00:00',
+        '/TN', taskName,
+        '/TR', taskCmd,
+      ], { detached: true, stdio: 'ignore' });
+      create.on('error', (err) => console.error('[applyUpdate] schtasks create error:', err));
+
+      // Step 2: trigger immediately once registration is complete
+      create.on('exit', () => {
+        const run = spawn('schtasks', ['/Run', '/TN', taskName],
+          { detached: true, stdio: 'ignore' });
+        run.on('error', (err) => console.error('[applyUpdate] schtasks run error:', err));
+        run.unref();
+      });
+      create.unref();
       return;
     }
 
