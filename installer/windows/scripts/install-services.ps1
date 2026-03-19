@@ -311,24 +311,49 @@ try {
     }
 }
 
-# Register scheduled task for auto-update (if stub present)
+# Register scheduled tasks for auto-update (if stub present)
 $updateScript = Join-Path $AppDir "updater\check-updates.ps1"
 if (Test-Path $updateScript) {
     try {
-        $taskName = "TaskMeshUpdateCheck"
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        # Weekly automatic check (runs as the current logged-in user context)
+        $weeklyName = "TaskMeshUpdateCheck"
+        Unregister-ScheduledTask -TaskName $weeklyName -Confirm:$false -ErrorAction SilentlyContinue
 
-        $action   = New-ScheduledTaskAction -Execute "powershell.exe" `
-                        -Argument ("-NonInteractive -WindowStyle Hidden -File " + $q + $updateScript + $q)
-        $trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
-        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+        $weeklyAction   = New-ScheduledTaskAction -Execute "powershell.exe" `
+                              -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
+        $weeklyTrigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
+        $weeklySettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+        $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
-        Register-ScheduledTask -TaskName $taskName -Action $action `
-            -Trigger $trigger -Settings $settings -RunLevel Highest `
-            -Description "TaskMesh weekly update check" | Out-Null
-        Write-Host "Scheduled update check task registered."
+        Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `
+            -Trigger $weeklyTrigger -Settings $weeklySettings -Principal $weeklyPrincipal `
+            -Description "TaskMesh weekly update check (runs as SYSTEM)" | Out-Null
+        Write-Host "Weekly update check task registered."
     } catch {
-        Write-Warning "Failed to register scheduled task: $_"
+        Write-Warning "Failed to register weekly update task: $_"
+    }
+
+    try {
+        # On-demand trigger task — called by the Node.js server for manual in-app updates.
+        # Must run as SYSTEM so the installer can overwrite files without UAC prompts.
+        # The server triggers this with Start-ScheduledTask, which sends an RPC to the
+        # Task Scheduler service and returns immediately — the task runs outside the
+        # NSSM Job Object and survives the service shutdown that the update script triggers.
+        $onDemandName      = "TaskMesh-ApplyUpdate"
+        Unregister-ScheduledTask -TaskName $onDemandName -Confirm:$false -ErrorAction SilentlyContinue
+
+        $onDemandAction    = New-ScheduledTaskAction -Execute "powershell.exe" `
+                                -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
+        $onDemandPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        $onDemandSettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
+                                 -MultipleInstances IgnoreNew
+
+        Register-ScheduledTask -TaskName $onDemandName -Action $onDemandAction `
+            -Principal $onDemandPrincipal -Settings $onDemandSettings `
+            -Description "TaskMesh on-demand updater - triggered by the server, runs as SYSTEM" | Out-Null
+        Write-Host "On-demand update task ($onDemandName) registered as SYSTEM."
+    } catch {
+        Write-Warning "Failed to register on-demand update task: $_"
     }
 }
 
