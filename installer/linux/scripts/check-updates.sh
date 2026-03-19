@@ -20,11 +20,18 @@ trap cleanup EXIT
 CURRENT_VERSION="0.0.0"
 INSTALL_DIR="/opt/taskmesh"
 DATA_DIR="/var/lib/taskmesh"
+AUTO_UPDATE_ENABLED="1"
 
 if [[ -f "${CONFIG_FILE}" ]]; then
   _val=$(grep -m1 '^VERSION=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2) && CURRENT_VERSION="${_val:-0.0.0}"
   _val=$(grep -m1 '^INSTALL_DIR=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2) && INSTALL_DIR="${_val:-/opt/taskmesh}"
   _val=$(grep -m1 '^DATA_DIR=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2) && DATA_DIR="${_val:-/var/lib/taskmesh}"
+  _val=$(grep -m1 '^AUTO_UPDATE_ENABLED=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2) && AUTO_UPDATE_ENABLED="${_val:-1}"
+fi
+
+# Respect the in-app auto-update toggle (stored in /etc/taskmesh/config).
+if [[ "${AUTO_UPDATE_ENABLED}" != "1" ]]; then
+  exit 0  # Auto-update disabled in app settings — exit cleanly
 fi
 
 # ── Fetch latest release metadata ────────────────────────────────────────────

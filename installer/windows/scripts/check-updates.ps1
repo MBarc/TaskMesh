@@ -47,6 +47,15 @@ if (-not $installedVersion) {
     exit 1
 }
 
+# Respect the in-app auto-update toggle (stored in registry by install-services.ps1 / the settings API).
+# Value '0' means the user disabled auto-update from within the app — exit cleanly so the weekly
+# scheduled task is a no-op until they re-enable it.
+$autoUpdateEnabled = $regProps.AutoUpdateEnabled
+if ($autoUpdateEnabled -eq '0') {
+    Write-Log "Auto-update is disabled in app settings. Exiting."
+    exit 0
+}
+
 # ── Query GitHub Releases API ────────────────────────────────────────────────
 $apiUrl = "https://api.github.com/repos/MBarc/TaskMesh/releases/latest"
 

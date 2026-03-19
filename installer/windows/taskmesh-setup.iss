@@ -4,7 +4,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName      "TaskMesh"
-#define AppVersion   "0.0.20"
+#define AppVersion   "0.0.21"
 #define AppPublisher "TaskMesh"
 #define AppURL       "https://taskmesh.co"
 #define AppExeName   "scripts\start-taskmesh.bat"
@@ -84,7 +84,7 @@ Source: "scripts\uninstall-ollama.ps1";   DestDir: "{app}\scripts"; Flags: ignor
 Source: "scripts\ensure-port.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\start-taskmesh.bat";     DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\launch-taskmesh.vbs";    DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "scripts\check-updates.ps1";      DestDir: "{app}\updater"; Flags: ignoreversion; Tasks: autoupdate
+Source: "scripts\check-updates.ps1";      DestDir: "{app}\updater"; Flags: ignoreversion
 
 ; AI component (optional — only extracted when AI component is selected)
 Source: "dist\ai-service\*";        DestDir: "{app}\ai-service";        Flags: ignoreversion recursesubdirs createallsubdirs; Components: ai
@@ -129,14 +129,14 @@ Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Port";
 ; ProcessStartInfo.CreateNoWindow=true so the child PowerShell is also fully
 ; hidden — eliminating the brief flash that occurs with -WindowStyle Hidden alone.
 Filename: "{app}\scripts\ps-launcher.exe"; \
-    Parameters: """{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"""; \
+    Parameters: """{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"" -AutoUpdateEnabled ""{code:GetAutoUpdateEnabled}"""; \
     StatusMsg: "Registering TaskMesh services (this may take a minute)..."; \
     Flags: waituntilterminated; \
     Check: IsNotVerboseMode
 
 ; Step 1b — Register core Windows services (/VERBOSE: visible console window)
 Filename: "powershell.exe"; \
-    Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"" -Verbose"; \
+    Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-services.ps1"" -AppDir ""{app}"" -DataDir ""{code:GetDataDir}"" -TelemetryEnabled ""{code:GetTelemetryEnabled}"" -AppVersion ""{#AppVersion}"" -AutoUpdateEnabled ""{code:GetAutoUpdateEnabled}"" -Verbose"; \
     StatusMsg: "Registering TaskMesh services (verbose — console window is open)..."; \
     Flags: waituntilterminated; \
     Check: IsVerboseMode
@@ -307,6 +307,18 @@ begin
     Exit;
   end;
   if (TelemetryPage <> nil) and TelemetryPage.Values[0] then
+    Result := '1'
+  else
+    Result := '0';
+end;
+
+// ── Helper: auto-update enabled ('1' or '0') ─────────────────────────────────
+// CLI /AUTOUPDATE=1|0 takes precedence; wizard page is read otherwise; default is '1'.
+function GetAutoUpdateEnabled(Param: String): String;
+begin
+  if ExpandConstant('{param:AUTOUPDATE|}') <> '' then
+    Result := ExpandConstant('{param:AUTOUPDATE|}')
+  else if (OptionsPage <> nil) and OptionsPage.Values[0] then
     Result := '1'
   else
     Result := '0';

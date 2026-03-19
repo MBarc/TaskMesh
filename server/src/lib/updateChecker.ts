@@ -179,6 +179,94 @@ export function getUpdateStatus(): UpdateStatus {
   return { ...status };
 }
 
+// ── Auto-update management helpers ───────────────────────────────────────────
+
+function getLinuxInstallDir(): string {
+  try {
+    const config = fs.readFileSync('/etc/taskmesh/config', 'utf8');
+    const match = config.match(/^INSTALL_DIR=(.+)$/m);
+    if (match) return match[1].trim();
+  } catch { /* use default */ }
+  return '/opt/taskmesh';
+}
+
+function updateLinuxConfig(key: string, value: string): void {
+  const configPath = '/etc/taskmesh/config';
+  try {
+    let config = fs.readFileSync(configPath, 'utf8');
+    const regex = new RegExp(`^${key}=.*$`, 'm');
+    if (regex.test(config)) {
+      config = config.replace(regex, `${key}=${value}`);
+    } else {
+      config += `\n${key}=${value}\n`;
+    }
+    fs.writeFileSync(configPath, config, 'utf8');
+  } catch { /* non-critical */ }
+}
+
+function runPowerShell(command: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', [
+      '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+      '-Command', command,
+    ], { stdio: 'ignore' });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`PowerShell exited with code ${code}`));
+    });
+  });
+}
+
+export async function enableAutoUpdate(): Promise<void> {
+  const os = detectOS();
+  if (os === 'docker') return;
+
+  if (os === 'windows') {
+    const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
+    if (!fs.existsSync(updaterScript)) {
+      throw new Error('Updater script not found. Reinstall TaskMesh to enable auto-updates.');
+    }
+    await runPowerShell([
+      `$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${updaterScript}"')`,
+      `$trigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:00'`,
+      `$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest`,
+      `$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)`,
+      `Unregister-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Confirm:$false -ErrorAction SilentlyContinue`,
+      `Register-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'TaskMesh weekly auto-updater' | Out-Null`,
+      `Set-ItemProperty -Path 'HKLM:\\Software\\TaskMesh' -Name 'AutoUpdateEnabled' -Value '1' -ErrorAction SilentlyContinue`,
+    ].join('; '));
+  } else {
+    // Linux — write /etc/cron.d/taskmesh (service runs as root)
+    const installDir = getLinuxInstallDir();
+    const updaterScript = path.join(installDir, 'scripts/check-updates.sh');
+    if (!fs.existsSync(updaterScript)) {
+      throw new Error('Updater script not found. Reinstall TaskMesh to enable auto-updates.');
+    }
+    fs.writeFileSync(
+      '/etc/cron.d/taskmesh',
+      `# TaskMesh weekly auto-update (managed by TaskMesh — do not edit manually)\n0 9 * * 0 root bash ${updaterScript}\n`,
+      'utf8'
+    );
+    updateLinuxConfig('AUTO_UPDATE_ENABLED', '1');
+  }
+}
+
+export async function disableAutoUpdate(): Promise<void> {
+  const os = detectOS();
+  if (os === 'docker') return;
+
+  if (os === 'windows') {
+    await runPowerShell([
+      `Unregister-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Confirm:$false -ErrorAction SilentlyContinue`,
+      `Set-ItemProperty -Path 'HKLM:\\Software\\TaskMesh' -Name 'AutoUpdateEnabled' -Value '0' -ErrorAction SilentlyContinue`,
+    ].join('; '));
+  } else {
+    try { fs.unlinkSync('/etc/cron.d/taskmesh'); } catch { /* already gone */ }
+    updateLinuxConfig('AUTO_UPDATE_ENABLED', '0');
+  }
+}
+
 export async function applyUpdate(): Promise<void> {
   if (!status.updateAvailable || !status.latestVersion) {
     throw new Error('No update available');

@@ -11,8 +11,9 @@
 
 set -euo pipefail
 
-INSTALL_DIR="${1:?Usage: $0 <install-dir> <data-dir> [app-version]}"
-DATA_DIR="${2:?Usage: $0 <install-dir> <data-dir> [app-version]}"
+INSTALL_DIR="${1:?Usage: $0 <install-dir> <data-dir> [app-version] [auto-update-enabled]}"
+DATA_DIR="${2:?Usage: $0 <install-dir> <data-dir> [app-version] [auto-update-enabled]}"
+AUTO_UPDATE_ENABLED="${4:-0}"   # 4th positional arg; defaults to disabled
 
 # Resolve version: prefer explicit argument, fall back to dist package.json
 if [[ -n "${3:-}" ]]; then
@@ -88,6 +89,7 @@ DATA_DIR=${DATA_DIR}
 PORT=${PORT}
 APP_URL=${APP_URL}
 VERSION=${APP_VERSION}
+AUTO_UPDATE_ENABLED=${AUTO_UPDATE_ENABLED}
 EOFCONFIG
 echo "Config written to /etc/taskmesh/config"
 
@@ -147,6 +149,22 @@ echo "systemd unit written: /etc/systemd/system/taskmesh-server.service"
 systemctl daemon-reload
 systemctl enable taskmesh-server
 systemctl restart taskmesh-server
+
+# ── Auto-update cron entry (only when enabled) ───────────────────────────────
+# The in-app settings toggle also manages this file at runtime via the server API.
+CRON_FILE="/etc/cron.d/taskmesh"
+UPDATE_SCRIPT="${INSTALL_DIR}/scripts/check-updates.sh"
+
+rm -f "${CRON_FILE}"
+if [[ "${AUTO_UPDATE_ENABLED}" == "1" && -f "${UPDATE_SCRIPT}" ]]; then
+    cat > "${CRON_FILE}" << EOFCRON
+# TaskMesh weekly auto-update (managed by TaskMesh — do not edit manually)
+0 9 * * 0 root bash ${UPDATE_SCRIPT}
+EOFCRON
+    echo "Weekly auto-update cron entry written to ${CRON_FILE}."
+else
+    echo "Auto-update disabled — cron entry not created."
+fi
 
 echo ""
 echo "TaskMesh install script complete."

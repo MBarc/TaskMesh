@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { capture } from '../lib/telemetry.js';
+import { enableAutoUpdate, disableAutoUpdate } from '../lib/updateChecker.js';
 
 export const settingsRoutes = Router();
 
@@ -76,6 +77,16 @@ settingsRoutes.patch('/', async (req, res) => {
 
     for (const [field, value] of Object.entries(data)) {
       capture('settings_updated', { field, value });
+    }
+
+    // Sync the scheduled task / cron entry with the new auto-update preference.
+    if (typeof autoUpdateEnabled === 'boolean') {
+      try {
+        if (autoUpdateEnabled) await enableAutoUpdate();
+        else await disableAutoUpdate();
+      } catch (err) {
+        console.error('[autoUpdate] toggle failed (DB already updated):', err);
+      }
     }
 
     res.json(settings);

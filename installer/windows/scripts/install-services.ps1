@@ -11,7 +11,8 @@ param(
     [Parameter(Mandatory)][string]$AppDir,
     [Parameter(Mandatory)][string]$DataDir,
     [string]$TelemetryEnabled = '0',
-    [string]$AppVersion = '1.0.0'
+    [string]$AppVersion = '1.0.0',
+    [string]$AutoUpdateEnabled = '0'
 )
 
 # ── Helpers (defined first so they're available everywhere in the script) ──────
@@ -167,11 +168,12 @@ Write-Host "Writing registry config..."
 try {
     $regPath = "HKLM:\Software\TaskMesh"
     if (-not (Test-Path $regPath)) { New-Item -Force -Path $regPath | Out-Null }
-    Set-ItemProperty -Path $regPath -Name "AppDir"  -Value $AppDir
-    Set-ItemProperty -Path $regPath -Name "DataDir" -Value $DataDir
-    Set-ItemProperty -Path $regPath -Name "Port"    -Value "$Port"
-    Set-ItemProperty -Path $regPath -Name "AppUrl"  -Value $appUrl
-    Set-ItemProperty -Path $regPath -Name "Version" -Value $AppVersion
+    Set-ItemProperty -Path $regPath -Name "AppDir"            -Value $AppDir
+    Set-ItemProperty -Path $regPath -Name "DataDir"           -Value $DataDir
+    Set-ItemProperty -Path $regPath -Name "Port"              -Value "$Port"
+    Set-ItemProperty -Path $regPath -Name "AppUrl"            -Value $appUrl
+    Set-ItemProperty -Path $regPath -Name "Version"           -Value $AppVersion
+    Set-ItemProperty -Path $regPath -Name "AutoUpdateEnabled" -Value $AutoUpdateEnabled
     Write-Host "Registry written OK."
 } catch {
     Write-Warning "Registry write failed: $_ (continuing)"
@@ -311,34 +313,15 @@ try {
     }
 }
 
-# Register scheduled tasks for auto-update (if stub present)
+# Register scheduled tasks for auto-update.
+# check-updates.ps1 is always bundled (needed for both on-demand and weekly updates).
 $updateScript = Join-Path $AppDir "updater\check-updates.ps1"
 if (Test-Path $updateScript) {
+
+    # TaskMesh-ApplyUpdate — on-demand trigger, ALWAYS registered.
+    # Called by the Node.js server via schtasks /Run for manual in-app updates.
+    # Must run as SYSTEM so the installer can overwrite files without UAC.
     try {
-        # Weekly automatic check (runs as the current logged-in user context)
-        $weeklyName = "TaskMeshUpdateCheck"
-        Unregister-ScheduledTask -TaskName $weeklyName -Confirm:$false -ErrorAction SilentlyContinue
-
-        $weeklyAction   = New-ScheduledTaskAction -Execute "powershell.exe" `
-                              -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
-        $weeklyTrigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
-        $weeklySettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-        $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-        Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `
-            -Trigger $weeklyTrigger -Settings $weeklySettings -Principal $weeklyPrincipal `
-            -Description "TaskMesh weekly update check (runs as SYSTEM)" | Out-Null
-        Write-Host "Weekly update check task registered."
-    } catch {
-        Write-Warning "Failed to register weekly update task: $_"
-    }
-
-    try {
-        # On-demand trigger task — called by the Node.js server for manual in-app updates.
-        # Must run as SYSTEM so the installer can overwrite files without UAC prompts.
-        # The server triggers this with Start-ScheduledTask, which sends an RPC to the
-        # Task Scheduler service and returns immediately — the task runs outside the
-        # NSSM Job Object and survives the service shutdown that the update script triggers.
         $onDemandName      = "TaskMesh-ApplyUpdate"
         Unregister-ScheduledTask -TaskName $onDemandName -Confirm:$false -ErrorAction SilentlyContinue
 
@@ -354,6 +337,30 @@ if (Test-Path $updateScript) {
         Write-Host "On-demand update task ($onDemandName) registered as SYSTEM."
     } catch {
         Write-Warning "Failed to register on-demand update task: $_"
+    }
+
+    # TaskMeshUpdateCheck — weekly automatic check, only registered when auto-update is enabled.
+    # The in-app settings toggle registers/unregisters this task at runtime via the server API.
+    $weeklyName = "TaskMeshUpdateCheck"
+    Unregister-ScheduledTask -TaskName $weeklyName -Confirm:$false -ErrorAction SilentlyContinue
+
+    if ($AutoUpdateEnabled -eq '1') {
+        try {
+            $weeklyAction    = New-ScheduledTaskAction -Execute "powershell.exe" `
+                                   -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
+            $weeklyTrigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
+            $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+            $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+            Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `
+                -Trigger $weeklyTrigger -Settings $weeklySettings -Principal $weeklyPrincipal `
+                -Description "TaskMesh weekly auto-updater (runs as SYSTEM)" | Out-Null
+            Write-Host "Weekly update check task registered."
+        } catch {
+            Write-Warning "Failed to register weekly update task: $_"
+        }
+    } else {
+        Write-Host "Auto-update disabled — weekly update task not registered."
     }
 }
 
