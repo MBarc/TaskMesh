@@ -23,13 +23,11 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Uploads
-uploads/*
-!uploads/.gitkeep
-
 # Meeting notes
-meeting-notes/*
-!meeting-notes/.gitkeep
+meeting-notes/
+
+# Sample files
+sample/
 
 # Claude Code
 .claude/settings.local.json
