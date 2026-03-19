@@ -140,6 +140,12 @@ $installArgs = @(
 if ($installDir) { $installArgs += "/DIR=`"$installDir`"" }
 if ($dataDir)    { $installArgs += "/DATADIR=`"$dataDir`"" }
 
+# Preserve the user's auto-update preference across updates.
+# Without this, the installer defaults to /AUTOUPDATE=1 and would silently
+# re-enable auto-update for users who had turned it off in Settings.
+$autoUpdateVal = if ($regProps.AutoUpdateEnabled -eq '0') { '0' } else { '1' }
+$installArgs += "/AUTOUPDATE=$autoUpdateVal"
+
 Write-Log "Running silent install with args: $($installArgs -join ' ')..." "Information" 8
 
 # ── Launch installer and wait ─────────────────────────────────────────────────
