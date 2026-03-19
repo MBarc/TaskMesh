@@ -349,7 +349,7 @@ if (Test-Path $updateScript) {
             $weeklyAction    = New-ScheduledTaskAction -Execute "powershell.exe" `
                                    -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
             $weeklyTrigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
-            $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+            $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable $true
             $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
             Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `

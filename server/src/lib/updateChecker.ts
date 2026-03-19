@@ -231,7 +231,7 @@ export async function enableAutoUpdate(): Promise<void> {
       `$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${updaterScript}"')`,
       `$trigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:00'`,
       `$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest`,
-      `$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1)`,
+      `$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable $true`,
       `Unregister-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Confirm:$false -ErrorAction SilentlyContinue`,
       `Register-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'TaskMesh weekly auto-updater' | Out-Null`,
       `Set-ItemProperty -Path 'HKLM:\\Software\\TaskMesh' -Name 'AutoUpdateEnabled' -Value '1' -ErrorAction SilentlyContinue`,
