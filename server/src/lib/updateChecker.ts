@@ -196,10 +196,11 @@ export async function applyUpdate(): Promise<void> {
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
     if (fs.existsSync(updaterScript)) {
       const child = spawn('powershell.exe', [
-        '-NonInteractive', '-WindowStyle', 'Hidden',
+        '-NonInteractive', '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', updaterScript,
       ], { detached: true, stdio: 'ignore' });
+      child.on('error', (err) => console.error('[applyUpdate] spawn error:', err));
       child.unref();
       return;
     }
@@ -222,7 +223,7 @@ export async function applyUpdate(): Promise<void> {
     ].join('; ');
 
     const child = spawn('powershell.exe', [
-      '-NonInteractive', '-WindowStyle', 'Hidden',
+      '-NonInteractive', '-NoProfile',
       '-ExecutionPolicy', 'Bypass',
       '-Command', script,
     ], { detached: true, stdio: 'ignore' });
