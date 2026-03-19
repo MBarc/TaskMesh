@@ -213,6 +213,7 @@ var
   InstallCompleted:  Boolean;
 
   IsRepairMode:    Boolean;
+  IsUpdateMode:    Boolean;
   RemoveOllama:    Boolean;
   DataDirToRemove: String;
 
@@ -224,6 +225,43 @@ begin
   if not RegQueryStringValue(RootKey, SubKey, Name, Value) then
     Value := '';
   Result := Value;
+end;
+
+// ── Helper: compare semver strings ──────────────────────────────────────────
+// Returns -1 if V1 < V2, 0 if equal, 1 if V1 > V2.
+// Handles up to 4 dot-separated numeric components (e.g. "1.2.3.4").
+function CompareVersions(V1, V2: String): Integer;
+var
+  I, N1, N2: Integer;
+  Parts1, Parts2: TStringList;
+begin
+  Result := 0;
+  Parts1 := TStringList.Create;
+  Parts2 := TStringList.Create;
+  try
+    Parts1.Delimiter     := '.';
+    Parts1.StrictDelimiter := True;
+    Parts1.DelimitedText := V1;
+
+    Parts2.Delimiter     := '.';
+    Parts2.StrictDelimiter := True;
+    Parts2.DelimitedText := V2;
+
+    // Pad the shorter list with '0' entries
+    while Parts1.Count < Parts2.Count do Parts1.Add('0');
+    while Parts2.Count < Parts1.Count do Parts2.Add('0');
+
+    for I := 0 to Parts1.Count - 1 do
+    begin
+      N1 := StrToIntDef(Parts1[I], 0);
+      N2 := StrToIntDef(Parts2[I], 0);
+      if N1 < N2 then begin Result := -1; Exit; end;
+      if N1 > N2 then begin Result :=  1; Exit; end;
+    end;
+  finally
+    Parts1.Free;
+    Parts2.Free;
+  end;
 end;
 
 // ── Helper: data dir (used by [Registry] and [Run] callbacks) ───────────────
@@ -422,18 +460,23 @@ begin
 end;
 
 
-// ── Maintenance dialog — returns 1=Repair, 2=Uninstall, 0=Cancel ────────────
+// ── Maintenance dialog — returns 1=Update/Repair, 2=Uninstall, 0=Cancel ─────
 // MsgBox button labels cannot be customised, so we build a small TForm instead.
-function ShowMaintenanceDialog: Integer;
+// IsUpdate=True → shows "Update" button + version banner instead of "Repair".
+function ShowMaintenanceDialog(IsUpdate: Boolean; ExistingVer, NewVer: String): Integer;
 var
   Form:                   TForm;
   Lbl:                    TLabel;
-  BtnRepair, BtnUninstall, BtnCancel: TButton;
+  BtnAction, BtnUninstall, BtnCancel: TButton;
 begin
   Result := 0;
   Form := TForm.Create(nil);
   try
-    Form.Caption      := 'TaskMesh Already Installed';
+    if IsUpdate then
+      Form.Caption := 'Update TaskMesh'
+    else
+      Form.Caption := 'TaskMesh Already Installed';
+
     Form.ClientWidth  := 430;
     Form.ClientHeight := 160;
     Form.Position     := poScreenCenter;
@@ -443,25 +486,36 @@ begin
 
     Lbl := TLabel.Create(Form);
     Lbl.Parent    := Form;
-    Lbl.Caption   :=
-      'TaskMesh is already installed on this computer.' + #13#10#13#10 +
-      'Repair re-installs files and re-registers services.' + #13#10 +
-      'Uninstall removes TaskMesh completely.';
+    if IsUpdate then
+      Lbl.Caption :=
+        'A newer version of TaskMesh is available.' + #13#10 +
+        'Installed: ' + ExistingVer + '    New: ' + NewVer + #13#10#13#10 +
+        'Update installs the new version and restarts services.' + #13#10 +
+        'Uninstall removes TaskMesh completely.'
+    else
+      Lbl.Caption :=
+        'TaskMesh is already installed on this computer.' + #13#10#13#10 +
+        'Repair re-installs files and re-registers services.' + #13#10 +
+        'Uninstall removes TaskMesh completely.';
     Lbl.Left      := 16;
     Lbl.Top       := 16;
     Lbl.Width     := 398;
-    Lbl.Height    := 60;
+    Lbl.Height    := 72;
     Lbl.WordWrap  := True;
     Lbl.AutoSize  := False;
 
-    BtnRepair := TButton.Create(Form);
-    BtnRepair.Parent      := Form;
-    BtnRepair.Caption     := 'Repair';
-    BtnRepair.Left        := 16;
-    BtnRepair.Top         := 114;
-    BtnRepair.Width       := 120;
-    BtnRepair.Height      := 32;
-    BtnRepair.ModalResult := mrYes;
+    BtnAction := TButton.Create(Form);
+    BtnAction.Parent      := Form;
+    if IsUpdate then
+      BtnAction.Caption := 'Update'
+    else
+      BtnAction.Caption := 'Repair';
+    BtnAction.Left        := 16;
+    BtnAction.Top         := 114;
+    BtnAction.Width       := 120;
+    BtnAction.Height      := 32;
+    BtnAction.ModalResult := mrYes;
+    BtnAction.Default     := True;
 
     BtnUninstall := TButton.Create(Form);
     BtnUninstall.Parent      := Form;
@@ -519,6 +573,8 @@ begin
   end;
 
   ExistingVersion := RegGetStr(HKLM, 'Software\TaskMesh', 'Version');
+  IsUpdateMode := (ExistingVersion <> '') and
+                  (CompareVersions('{#AppVersion}', ExistingVersion) > 0);
 
   if ExistingVersion = '' then begin
     // Fresh install — in quiet/silent mode, /DATADIR is required because it
@@ -564,19 +620,19 @@ begin
     Exit;
   end;
 
-  // Existing install — maintenance mode.
-  // In quiet/silent mode: automatically proceed with repair (re-install files,
-  // re-register services) without requiring a GUI response.
+  // Existing install — maintenance mode (update or repair).
+  // In quiet/silent mode: automatically proceed with update/repair (re-install
+  // files, re-register services) without requiring a GUI response.
   if IsQuietMode() then begin
     IsRepairMode := True;
     Result := True;
     Exit;
   end;
 
-  Choice := ShowMaintenanceDialog;
+  Choice := ShowMaintenanceDialog(IsUpdateMode, ExistingVersion, '{#AppVersion}');
 
   case Choice of
-    1: // Repair — proceed with normal install flow
+    1: // Update / Repair — proceed with normal install flow
     begin
       IsRepairMode := True;
       Result := True;
