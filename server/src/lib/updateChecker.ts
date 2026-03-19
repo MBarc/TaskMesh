@@ -195,39 +195,32 @@ export async function applyUpdate(): Promise<void> {
     // Falls back to spawning a fresh download directly if the script is somehow missing.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
     if (fs.existsSync(updaterScript)) {
-      // Launch via Task Scheduler so the update script runs outside the NSSM Job Object.
+      // Launch via WMI Win32_Process.Create() so the updater runs outside the NSSM Job Object.
       //
       // Root cause chain:
-      //   1. This service runs under NSSM, which wraps the process in a Windows Job Object.
-      //   2. Spawning PowerShell (or ps-launcher.exe) directly creates child processes that
-      //      inherit the same Job Object.
-      //   3. When the update script calls `nssm stop` to stop this service, NSSM closes the
-      //      Job Object. Windows kills every process in the Job — including the PowerShell
-      //      running the update script — before the installer ever runs.
-      //   4. Task Scheduler runs tasks in a separate process tree, outside the Job, so the
-      //      script survives the service shutdown and can complete the install.
-      const taskName = 'TaskMesh-ApplyUpdate';
-      const taskCmd = `powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "${updaterScript}"`;
-
-      // Step 1: register the task (schtasks.exe is a lightweight RPC call, completes in <1s)
-      const create = spawn('schtasks', [
-        '/Create', '/F',
-        '/RU', 'SYSTEM',
-        '/SC', 'ONCE',
-        '/ST', '00:00',
-        '/TN', taskName,
-        '/TR', taskCmd,
+      //   1. This service runs under NSSM, which wraps all child processes in a Windows Job Object.
+      //   2. spawn() directly (or ps-launcher.exe) inherits that Job Object.
+      //   3. When the update script calls `nssm stop`, NSSM closes the Job — killing every
+      //      process in it, including any spawned PowerShell — before the installer can run.
+      //
+      // Why WMI works:
+      //   Win32_Process.Create() routes through wmiprvse.exe (WMI Provider Host), which runs in
+      //   its own process outside the NSSM Job Object. The process it creates is therefore also
+      //   outside the Job and survives the service shutdown.
+      //
+      // schtasks was tried first but `schtasks /Create` silently fails when called from a
+      // SYSTEM service context on Windows 10/11 — the task XML is never written to
+      // C:\Windows\System32\Tasks\, so /Run has nothing to trigger.
+      const psCommand =
+        `([wmiclass]'Win32_Process').Create(` +
+        `'powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass` +
+        ` -File "${updaterScript}"')`;
+      const launcher = spawn('powershell.exe', [
+        '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-Command', psCommand,
       ], { detached: true, stdio: 'ignore' });
-      create.on('error', (err) => console.error('[applyUpdate] schtasks create error:', err));
-
-      // Step 2: trigger immediately once registration is complete
-      create.on('exit', () => {
-        const run = spawn('schtasks', ['/Run', '/TN', taskName],
-          { detached: true, stdio: 'ignore' });
-        run.on('error', (err) => console.error('[applyUpdate] schtasks run error:', err));
-        run.unref();
-      });
-      create.unref();
+      launcher.on('error', (err) => console.error('[applyUpdate] WMI launch error:', err));
+      launcher.unref();
       return;
     }
 
