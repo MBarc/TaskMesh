@@ -207,7 +207,9 @@ for ($i = 0; $i -lt 30; $i++) {
 }
 
 if (-not $ready) {
-    Write-Warning "Ollama did not respond after 60 s. AI features may not work until it starts."
+    Write-Warning "Ollama did not respond after 60 s — cannot pull model."
+    Write-Warning "AI features will not be available. You can re-run AI setup from the TaskMesh settings panel once Ollama starts."
+    exit 1
 }
 
 # ── Step 4: Pull AI language model ───────────────────────────────
@@ -219,13 +221,13 @@ Write-Step "Downloading AI language model: $OllamaModel"
 Write-Host "(This may be 2–20 GB depending on the model — please wait)" -ForegroundColor Yellow
 Write-Host ""
 
-$pullResult = Invoke-Hidden -Exe $ollamaExe -ExeArgs @("pull", $OllamaModel)
-if ($pullResult.ExitCode -eq 0) {
+& $ollamaExe pull $OllamaModel
+if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "Model '$OllamaModel' ready." -ForegroundColor Green
     $modelReady = $true
 } else {
-    Write-Warning "Model pull failed for '$OllamaModel' (exit code $($pullResult.ExitCode))."
+    Write-Warning "Model pull failed for '$OllamaModel'."
 
     # Find this tier in the list and try the next one down.
     $tierIdx = [array]::IndexOf($allTiers, $OllamaModel)
@@ -233,14 +235,14 @@ if ($pullResult.ExitCode -eq 0) {
         $fallback = $allTiers[$tierIdx + 1]
         Write-Host "Retrying with fallback model: $fallback" -ForegroundColor Yellow
         Write-Host ""
-        $fallbackResult = Invoke-Hidden -Exe $ollamaExe -ExeArgs @("pull", $fallback)
-        if ($fallbackResult.ExitCode -eq 0) {
+        & $ollamaExe pull $fallback
+        if ($LASTEXITCODE -eq 0) {
             $OllamaModel = $fallback
             Write-Host ""
             Write-Host "Model '$OllamaModel' ready (fallback)." -ForegroundColor Green
             $modelReady = $true
         } else {
-            Write-Warning "Fallback model pull also failed (exit code $($fallbackResult.ExitCode))."
+            Write-Warning "Fallback model pull also failed."
         }
     }
 

@@ -30,7 +30,7 @@ function sanitizeFsName(name: string): string {
 
 async function getBoardFsRoot(boardId: string): Promise<string> {
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
-  return path.join(getDocPath(), board ? sanitizeFsName(board.name) : boardId);
+  return path.join(getDocPath(), board ? sanitizeFsName(board.name) : sanitizeFsName(boardId));
 }
 
 async function getFolderFsPath(folder: { name: string; parentFolderId: string | null; boardId: string }): Promise<string> {

@@ -125,6 +125,17 @@ export interface ConnectorContext {
 // Handler interface (each connector implements)
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// Standard connector errors
+// ──────────────────────────────────────────────
+
+export class ConnectorAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConnectorAuthError';
+  }
+}
+
 export interface ConnectorHandlers {
   /** Register connector-specific routes not covered by the standard CRUD */
   registerCustomRoutes?(router: Router, ctx: ConnectorContext): void;

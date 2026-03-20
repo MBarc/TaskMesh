@@ -6,6 +6,15 @@ from typing import List, Dict, Any, Optional
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
 
+
+def _ollama_error(e: httpx.HTTPStatusError) -> str:
+    """Extract the human-readable error message from an Ollama HTTP error response."""
+    try:
+        body = e.response.json()
+        return body.get("error") or e.response.text or str(e.response.status_code)
+    except Exception:
+        return e.response.text or str(e.response.status_code)
+
 EXTRACTION_PROMPT = """You are a task extraction assistant. Your job is to extract actionable tasks from meeting notes or transcripts.
 
 Analyze the following text and extract ALL tasks, to-do items, action items, and assignments mentioned. Be thorough - it is better to include a task that might not be actionable than to miss one that is. For each task, identify:
@@ -121,7 +130,7 @@ async def extract_tasks_from_text(text: str, target_individual: Optional[str] = 
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out. The model may still be loading.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except Exception as e:
             raise Exception(f"Failed to extract tasks: {str(e)}")
 
@@ -227,7 +236,7 @@ async def generate_field_content(context: str, field_name: str, work_item_type: 
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out. The model may still be loading.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except Exception as e:
             raise Exception(f"Failed to generate field content: {str(e)}")
 
@@ -308,7 +317,7 @@ async def classify_email_content(subject: str, body: str, sender: str) -> Dict[s
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except json.JSONDecodeError:
             return {"classification": "ignore", "task_title": subject, "confidence": 0.3}
         except Exception as e:
@@ -388,7 +397,7 @@ async def generate_reply_content(
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except Exception as e:
             raise Exception(f"Failed to generate reply: {str(e)}")
 
@@ -444,7 +453,7 @@ async def reword_text_content(text: str, context: str = "") -> str:
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except Exception as e:
             raise Exception(f"Failed to reword text: {str(e)}")
 
@@ -507,7 +516,7 @@ async def generate_section_content(section_name: str, row_context: str = "", doc
         except httpx.TimeoutException:
             raise Exception("Ollama request timed out.")
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except Exception as e:
             raise Exception(f"Failed to generate section: {str(e)}")
 
@@ -820,7 +829,7 @@ async def generate_theme_colors(prompt: str) -> Dict[str, Any]:
             colors = _generate_palette_from_seeds(seed)
             return {"isDark": False, "colors": colors}
         except httpx.HTTPStatusError as e:
-            raise Exception(f"Ollama request failed: {e.response.status_code}")
+            raise Exception(f"Ollama error: {_ollama_error(e)}")
         except json.JSONDecodeError:
             raise Exception("Failed to parse AI response as JSON")
         except Exception as e:

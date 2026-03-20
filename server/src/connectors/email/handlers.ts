@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ConnectorHandlers, ConnectorContext } from '../framework/types.js';
+import { encrypt, decrypt } from '../../lib/crypto.js';
 import { prisma } from '../../lib/prisma.js';
 import { restartEmailPoller, fetchAndClassifyEmails } from '../../lib/emailPoller.js';
 import { ensureColumn } from '../framework/columnManager.js';
@@ -26,7 +27,7 @@ const handlers: ConnectorHandlers = {
       secure: true,
       auth: {
         user: activeSettings.username,
-        pass: activeSettings.password,
+        pass: decrypt(activeSettings.password),
       },
       logger: false,
     });
@@ -56,9 +57,9 @@ const handlers: ConnectorHandlers = {
           return res.json(null);
         }
 
-        const maskedPassword = settings.password.length > 4
-          ? '****' + settings.password.slice(-4)
-          : '****';
+        let plainPassword = '';
+        try { plainPassword = decrypt(settings.password); } catch { /* key missing or corrupted */ }
+        const maskedPassword = plainPassword.length > 4 ? '****' + plainPassword.slice(-4) : '****';
 
         res.json({
           id: settings.id,
@@ -114,7 +115,7 @@ const handlers: ConnectorHandlers = {
             provider, displayName, emailAddress,
             imapHost, imapPort: Number(imapPort),
             smtpHost, smtpPort: Number(smtpPort),
-            username, password,
+            username, password: encrypt(password),
             pollingInterval: Number(pollingInterval) || 60,
             active: !!active,
             replyTemplate: replyTemplate || null,
@@ -124,7 +125,7 @@ const handlers: ConnectorHandlers = {
             id: provider, provider, displayName, emailAddress,
             imapHost, imapPort: Number(imapPort),
             smtpHost, smtpPort: Number(smtpPort),
-            username, password,
+            username, password: encrypt(password),
             pollingInterval: Number(pollingInterval) || 60,
             active: !!active,
             replyTemplate: replyTemplate || null,
@@ -134,9 +135,9 @@ const handlers: ConnectorHandlers = {
 
         restartEmailPoller();
 
-        const maskedPassword = settings.password.length > 4
-          ? '****' + settings.password.slice(-4)
-          : '****';
+        let plainPassword = '';
+        try { plainPassword = decrypt(settings.password); } catch { /* key missing or corrupted */ }
+        const maskedPassword = plainPassword.length > 4 ? '****' + plainPassword.slice(-4) : '****';
 
         res.json({
           id: settings.id,
@@ -321,7 +322,7 @@ const handlers: ConnectorHandlers = {
           secure: settings.smtpPort === 465,
           auth: {
             user: settings.username,
-            pass: settings.password,
+            pass: decrypt(settings.password),
           },
         });
 

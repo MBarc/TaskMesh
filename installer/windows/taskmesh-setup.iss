@@ -4,7 +4,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName      "TaskMesh"
-#define AppVersion   "0.0.23"
+#define AppVersion   "0.0.24"
 #define AppPublisher "TaskMesh"
 #define AppURL       "https://taskmesh.co"
 #define AppExeName   "scripts\start-taskmesh.bat"
@@ -607,7 +607,7 @@ begin
         '  /DIR=<path>          Install directory (default: ' +
             ExpandConstant('{autopf}\TaskMesh') + ')' + #13#10 +
         '  /DATADIR=<path>      Data directory -- database + documents (REQUIRED)' + #13#10 +
-        '  /AUTOUPDATE=1|0      Weekly update checks (default: 0)' + #13#10 +
+        '  /AUTOUPDATE=1|0      Weekly update checks (default: 1)' + #13#10 +
         '  /STARTUP=1|0         Start on Windows login (default: 0)' + #13#10 +
         '  /DESKTOPICON=1|0     Desktop shortcut (default: 0)' + #13#10 +
         '  /TELEMETRY=1|0       Share anonymous usage data (default: 1)' + #13#10 +

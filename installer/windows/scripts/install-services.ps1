@@ -12,7 +12,7 @@ param(
     [Parameter(Mandatory)][string]$DataDir,
     [string]$TelemetryEnabled = '0',
     [string]$AppVersion = '1.0.0',
-    [string]$AutoUpdateEnabled = '0'
+    [string]$AutoUpdateEnabled = '1'
 )
 
 # ── Helpers (defined first so they're available everywhere in the script) ──────
@@ -147,6 +147,19 @@ try {
     Write-Warning "Could not update hosts file: $_ (continuing)"
 }
 
+# Generate or load persistent credential encryption key
+$encKeyFile = Join-Path $DataDir "encryption.key"
+if (Test-Path $encKeyFile) {
+    $env_TASKMESH_ENCRYPTION_KEY = (Get-Content $encKeyFile -Raw).Trim()
+    Write-Host "Loaded existing encryption key."
+} else {
+    $keyBytes = [byte[]]::new(32)
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
+    $env_TASKMESH_ENCRYPTION_KEY = ($keyBytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    $env_TASKMESH_ENCRYPTION_KEY | Set-Content $encKeyFile -NoNewline -Encoding ASCII
+    Write-Host "Generated new encryption key."
+}
+
 # Environment values
 $env_DATABASE_URL            = "file:$dbFile"
 $env_AI_SERVICE_URL          = "http://localhost:8000"
@@ -258,7 +271,8 @@ try {
         "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH",
         "TASKMESH_TELEMETRY_ENABLED=$env_TELEMETRY_ENABLED",
         "POSTHOG_API_KEY=$env_POSTHOG_API_KEY",
-        "POSTHOG_HOST=$env_POSTHOG_HOST"
+        "POSTHOG_HOST=$env_POSTHOG_HOST",
+        "TASKMESH_ENCRYPTION_KEY=$env_TASKMESH_ENCRYPTION_KEY"
     )
     # $svcParamsPath is guaranteed to exist (created/verified above)
     Set-ItemProperty -Path $svcParamsPath -Name "AppEnvironmentExtra" -Value $envVars -Type MultiString
@@ -299,7 +313,8 @@ try {
             "DOCUMENTATION_PATH=$env_DOCUMENTATION_PATH",
             "TASKMESH_TELEMETRY_ENABLED=$env_TELEMETRY_ENABLED",
             "POSTHOG_API_KEY=$env_POSTHOG_API_KEY",
-            "POSTHOG_HOST=$env_POSTHOG_HOST"
+            "POSTHOG_HOST=$env_POSTHOG_HOST",
+            "TASKMESH_ENCRYPTION_KEY=$env_TASKMESH_ENCRYPTION_KEY"
         )
         $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\TaskMesh-Server"
         if (Test-Path $svcRoot) {

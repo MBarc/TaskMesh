@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import swaggerUi from 'swagger-ui-express';
@@ -15,10 +16,10 @@ import { searchRoutes } from './routes/search.js';
 import documentationRouter from './routes/documentation.js';
 import { apiKeyAuth } from './lib/apiKeyAuth.js';
 import { swaggerSpec } from './lib/swagger.js';
-import { startEmailPoller } from './lib/emailPoller.js';
-import { startArchiveCleaner } from './lib/archiveCleaner.js';
-import { startNotificationPoller } from './lib/notificationPoller.js';
-import { startUpdateChecker } from './lib/updateChecker.js';
+import { startEmailPoller, stopEmailPoller } from './lib/emailPoller.js';
+import { startArchiveCleaner, stopArchiveCleaner } from './lib/archiveCleaner.js';
+import { startNotificationPoller, stopNotificationPoller } from './lib/notificationPoller.js';
+import { startUpdateChecker, stopUpdateChecker } from './lib/updateChecker.js';
 import { registerAllConnectors } from './connectors/registry.js';
 import { connectorImportRouter } from './routes/connectorImport.js';
 import { settingsRoutes } from './routes/settings.js';
@@ -33,6 +34,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
+app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 app.use(cors());
 app.use(express.json());
 app.use(apiKeyAuth);
@@ -122,6 +124,10 @@ async function start() {
   });
 
   process.on('SIGTERM', async () => {
+    stopEmailPoller();
+    stopArchiveCleaner();
+    stopNotificationPoller();
+    stopUpdateChecker();
     await shutdown();
     process.exit(0);
   });

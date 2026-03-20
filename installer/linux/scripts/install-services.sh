@@ -13,7 +13,7 @@ set -euo pipefail
 
 INSTALL_DIR="${1:?Usage: $0 <install-dir> <data-dir> [app-version] [auto-update-enabled]}"
 DATA_DIR="${2:?Usage: $0 <install-dir> <data-dir> [app-version] [auto-update-enabled]}"
-AUTO_UPDATE_ENABLED="${4:-0}"   # 4th positional arg; defaults to disabled
+AUTO_UPDATE_ENABLED="${4:-1}"   # 4th positional arg; defaults to enabled
 
 # Resolve version: prefer explicit argument, fall back to dist package.json
 if [[ -n "${3:-}" ]]; then
@@ -117,6 +117,18 @@ else
 fi
 unset DATABASE_URL NODE_ENV
 
+# ── Generate or load persistent credential encryption key ────────────────────
+ENCRYPTION_KEY_FILE="${DATA_DIR}/.encryption_key"
+if [[ -f "${ENCRYPTION_KEY_FILE}" ]]; then
+    ENCRYPTION_KEY=$(cat "${ENCRYPTION_KEY_FILE}")
+    echo "Loaded existing encryption key."
+else
+    ENCRYPTION_KEY=$(openssl rand -hex 32)
+    echo "${ENCRYPTION_KEY}" > "${ENCRYPTION_KEY_FILE}"
+    chmod 600 "${ENCRYPTION_KEY_FILE}"
+    echo "Generated new encryption key."
+fi
+
 # ── Write systemd service unit ────────────────────────────────────────────────
 cat > /etc/systemd/system/taskmesh-server.service << EOFUNIT
 [Unit]
@@ -133,6 +145,7 @@ Environment=DATABASE_URL=file:${DB_FILE}
 Environment=AI_SERVICE_URL=http://localhost:8000
 Environment=PORT=${PORT}
 Environment=DOCUMENTATION_PATH=${DOCS_DIR}
+Environment=TASKMESH_ENCRYPTION_KEY=${ENCRYPTION_KEY}
 Restart=on-failure
 RestartSec=5
 KillMode=process

@@ -1,4 +1,16 @@
 import { prisma } from './prisma.js';
+import { decrypt } from './crypto.js';
+import { ConnectorAuthError } from '../connectors/framework/types.js';
+
+function isAuthError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes('authentication failed') ||
+    msg.includes('invalid credentials') ||
+    msg.includes('login failed') ||
+    msg.includes('[authenticationfailed]')
+  );
+}
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://ai-service:8000';
 
@@ -64,7 +76,7 @@ export async function fetchAndClassifyEmails(): Promise<number> {
       secure: true,
       auth: {
         user: settings.username,
-        pass: settings.password,
+        pass: decrypt(settings.password),
       },
       logger: false,
     });
@@ -144,6 +156,26 @@ export async function fetchAndClassifyEmails(): Promise<number> {
 
     await client.logout();
   } catch (err) {
+    if (isAuthError(err)) {
+      console.error('[EmailPoller] Authentication failed — stopping poller');
+      stopEmailPoller();
+      try {
+        await prisma.notification.upsert({
+          where: { broadcastId: `email-auth-error-${settings.provider}` },
+          create: {
+            source: 'email-poller',
+            broadcastId: `email-auth-error-${settings.provider}`,
+            title: 'Email credentials are no longer working',
+            message: `The **${settings.displayName}** account credentials are invalid or expired. Go to Settings → Email to update them.`,
+            severity: 'error',
+          },
+          update: { dismissed: false, read: false },
+        });
+      } catch (notifErr) {
+        console.error('[EmailPoller] Failed to create auth error notification:', notifErr);
+      }
+      return 0;
+    }
     console.error('[EmailPoller] IMAP fetch error:', err);
   }
 
