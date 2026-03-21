@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { marked } from 'marked';
 import * as api from '../api';
 
 const STORAGE_KEY = 'seen_release_notes';
@@ -59,13 +60,10 @@ export function ReleaseNotesModal() {
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
           {status.releaseNotes ? (
-            <div className="space-y-1">
-              {status.releaseNotes.split('\n').map((line, i) => (
-                <p key={i} className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
-                  {line || '\u00A0'}
-                </p>
-              ))}
-            </div>
+            <div
+              className="text-sm text-text-primary [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-3 [&_h3]:text-lg [&_h3]:font-medium [&_h3]:mb-2 [&_h3]:mt-3 [&_h4]:font-medium [&_h4]:mb-1 [&_h4]:mt-2 [&_p]:mb-2 [&_p]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-2 [&_li]:mb-0.5 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-2 [&_code]:bg-surface-tertiary [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_code]:text-xs [&_pre]:bg-surface-tertiary [&_pre]:p-3 [&_pre]:rounded [&_pre]:overflow-x-auto [&_pre]:my-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_hr]:border-border [&_hr]:my-4 [&_a]:text-primary-400 [&_a]:underline [&_strong]:font-semibold [&_em]:italic"
+              dangerouslySetInnerHTML={{ __html: marked.parse(status.releaseNotes, { async: false }) as string }}
+            />
           ) : (
             <p className="text-sm text-text-secondary">
               No release notes available for this version.
