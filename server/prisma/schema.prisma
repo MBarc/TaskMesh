@@ -242,7 +242,7 @@ model AppSettings {
   telemetryEnabled     Boolean  @default(false)
   installUUID          String?
   activeThemeId        String   @default("default-light")
-  autoUpdateEnabled    Boolean  @default(false)
+  autoUpdateEnabled    Boolean  @default(true)
   lastSeenVersion      String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

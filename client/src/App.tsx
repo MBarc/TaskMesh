@@ -31,14 +31,13 @@ import { ArchiveSettings } from './components/ArchiveSettings';
 import { PrivacySettings } from './components/PrivacySettings';
 import { UpdateSettings } from './components/UpdateSettings';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
-import { ExportModal } from './components/ExportModal';
 import { ArchiveBoard } from './components/ArchiveBoard';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
 import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
-import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield } from 'lucide-react';
+import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
 import * as api from './api';
 
 // Static pages + dynamic connector pages (connector:{id} or connector:{id}:{instanceId})
@@ -151,21 +150,47 @@ function App() {
   const resetShortcutOverride = useShortcutStore((s) => s.resetOverride);
   const resetAllShortcuts = useShortcutStore((s) => s.resetAll);
 
-  const [showBoardExportModal, setShowBoardExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv');
   const [exportingAll, setExportingAll] = useState(false);
   const [exportAllError, setExportAllError] = useState<string | null>(null);
+  const [exportSelectedBoardIds, setExportSelectedBoardIds] = useState<Set<string>>(new Set());
+  const [importingAll, setImportingAll] = useState(false);
+  const [importAllResult, setImportAllResult] = useState<{ boardCount: number; taskCount: number } | null>(null);
+  const [importAllError, setImportAllError] = useState<string | null>(null);
+  const [importWasCsv, setImportWasCsv] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const emailColumnEnabled = currentBoard?.columns.some(c => c.type === 'EMAIL') ?? false;
 
-  async function handleExportAll() {
+  async function handleExportSelected() {
+    const ids = [...exportSelectedBoardIds];
     setExportingAll(true);
     setExportAllError(null);
     try {
-      await api.exportAll();
+      await api.exportBoards(ids, exportFormat);
     } catch (err) {
       setExportAllError(err instanceof Error ? err.message : 'Export failed');
     } finally {
       setExportingAll(false);
+    }
+  }
+
+  async function handleImportAll(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingAll(true);
+    setImportAllResult(null);
+    setImportAllError(null);
+    setImportWasCsv(file.name.toLowerCase().endsWith('.csv'));
+    try {
+      const result = await api.importBoards(file);
+      await fetchBoards();
+      setImportAllResult(result);
+    } catch (err) {
+      setImportAllError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImportingAll(false);
+      if (importFileRef.current) importFileRef.current.value = '';
     }
   }
 
@@ -198,6 +223,22 @@ function App() {
   useEffect(() => {
     fetchBoards();
   }, [fetchBoards]);
+
+  useEffect(() => {
+    if (activeSettingsPage === 'data') {
+      setExportSelectedBoardIds(new Set(boards.map((b) => b.id)));
+      setExportAllError(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSettingsPage]);
+
+  useEffect(() => {
+    const validIds = new Set(boards.map((b) => b.id));
+    setExportSelectedBoardIds((prev) => {
+      const next = new Set([...prev].filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [boards]);
 
   useEffect(() => {
     initializeThemes();
@@ -549,13 +590,6 @@ function App() {
                   </button>
                 )}
                 <button
-                  onClick={() => setShowBoardExportModal(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-tertiary rounded-md transition-colors"
-                >
-                  <Download className="w-4 h-4" />
-                  Export
-                </button>
-                <button
                   onClick={() => setShowColumnEditor(true)}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-tertiary rounded-md transition-colors"
                 >
@@ -799,21 +833,141 @@ function App() {
               {activeSettingsPage === 'data' && (
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-base font-semibold text-text-primary mb-1">Export All Data</h3>
-                    <p className="text-sm text-text-secondary mb-4">
-                      Download a ZIP file containing all your boards, tasks, and column definitions.
-                      Suitable for backups and migrating to a new installation.
+                    <h3 className="text-base font-semibold text-text-primary mb-1">Export Data</h3>
+                    <p className="text-sm text-text-secondary mb-3">
+                      Select boards and a format to export. A single board downloads as one file; multiple boards download as a ZIP.
                     </p>
+
+                    {boards.length === 0 ? (
+                      <p className="text-sm text-text-muted italic">No boards to export.</p>
+                    ) : (
+                      <>
+                        {/* Select all / deselect all */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-text-muted">
+                            {exportSelectedBoardIds.size} of {boards.length} selected
+                          </span>
+                          <button
+                            onClick={() =>
+                              setExportSelectedBoardIds(
+                                exportSelectedBoardIds.size === boards.length
+                                  ? new Set()
+                                  : new Set(boards.map((b) => b.id))
+                              )
+                            }
+                            className="text-xs text-primary-500 hover:text-primary-600"
+                          >
+                            {exportSelectedBoardIds.size === boards.length ? 'Deselect All' : 'Select All'}
+                          </button>
+                        </div>
+
+                        {/* Board list */}
+                        <div className="rounded-lg border border-border divide-y divide-border mb-4 max-h-52 overflow-y-auto">
+                          {boards.map((board) => (
+                            <label
+                              key={board.id}
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-surface-secondary cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={exportSelectedBoardIds.has(board.id)}
+                                onChange={() => {
+                                  const next = new Set(exportSelectedBoardIds);
+                                  next.has(board.id) ? next.delete(board.id) : next.add(board.id);
+                                  setExportSelectedBoardIds(next);
+                                }}
+                                className="accent-primary-500 shrink-0"
+                              />
+                              <span className="text-sm text-text-primary truncate">{board.name}</span>
+                            </label>
+                          ))}
+                        </div>
+
+                        {/* Format selector */}
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {(['csv', 'json'] as const).map((f) => (
+                            <button
+                              key={f}
+                              onClick={() => setExportFormat(f)}
+                              className={`flex flex-col items-start p-3 rounded-lg border transition-colors text-left ${
+                                exportFormat === f
+                                  ? 'bg-surface-tertiary border-primary-500 text-text-primary'
+                                  : 'border-border text-text-secondary hover:bg-surface-secondary'
+                              }`}
+                            >
+                              <span className="font-medium text-sm uppercase">{f}</span>
+                              <span className="text-xs mt-0.5 leading-snug">
+                                {f === 'csv'
+                                  ? 'Compatible with Excel, Google Sheets'
+                                  : 'Full structure, suitable for re-import'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={handleExportSelected}
+                          disabled={exportingAll || exportSelectedBoardIds.size === 0}
+                          className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                        >
+                          {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                          {exportingAll
+                            ? 'Preparing export…'
+                            : exportSelectedBoardIds.size === boards.length
+                            ? 'Export All Boards'
+                            : `Export ${exportSelectedBoardIds.size} ${exportSelectedBoardIds.size === 1 ? 'Board' : 'Boards'}`}
+                        </button>
+                        {exportAllError && (
+                          <p className="text-sm text-red-500 mt-2">{exportAllError}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="border-t border-border pt-6">
+                    <h3 className="text-base font-semibold text-text-primary mb-1">Import Data</h3>
+                    <p className="text-sm text-text-secondary mb-4">
+                      Import boards from a CSV, JSON, or ZIP export file. Each board will always be created new — if a board with the same name already exists, it will be renamed to avoid conflicts.
+                    </p>
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept=".csv,.json,.zip"
+                      className="hidden"
+                      onChange={handleImportAll}
+                    />
                     <button
-                      onClick={handleExportAll}
-                      disabled={exportingAll}
+                      onClick={() => { setImportAllResult(null); setImportAllError(null); importFileRef.current?.click(); }}
+                      disabled={importingAll}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-surface-tertiary transition-colors disabled:opacity-50"
                     >
-                      {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      {exportingAll ? 'Preparing export…' : 'Download All Data'}
+                      {importingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                      {importingAll ? 'Importing…' : 'Import File'}
                     </button>
-                    {exportAllError && (
-                      <p className="text-sm text-red-500 mt-2">{exportAllError}</p>
+                    {importAllResult && (
+                      <div className="flex items-start gap-3 mt-3 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-800">
+                        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-green-800 dark:text-green-300">Import successful</p>
+                          <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
+                            {importAllResult.boardCount} {importAllResult.boardCount === 1 ? 'board' : 'boards'} and {importAllResult.taskCount} {importAllResult.taskCount === 1 ? 'task' : 'tasks'} imported.
+                          </p>
+                          {importWasCsv && (
+                            <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                              CSV imports create text columns — column types and dropdown options are not preserved. Use JSON export for a full round-trip.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {importAllError && (
+                      <div className="flex items-start gap-3 mt-3 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-800">
+                        <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-red-800 dark:text-red-300">Import failed</p>
+                          <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">{importAllError}</p>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1003,15 +1157,6 @@ function App() {
           </div>
         )}
       </main>
-
-      {/* Board Export Modal */}
-      {showBoardExportModal && currentBoard && (
-        <ExportModal
-          scope="board"
-          board={currentBoard}
-          onClose={() => setShowBoardExportModal(false)}
-        />
-      )}
 
       {/* Column Editor Modal */}
       {showColumnEditor && (

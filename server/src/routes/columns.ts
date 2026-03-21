@@ -103,23 +103,29 @@ columnRoutes.put('/:id', requireScope('boards:write'), async (req, res) => {
       data: updateData,
     });
 
-    // If options are provided, replace them
+    // If options are provided, upsert them (preserving IDs so existing cell values aren't broken)
     if (options !== undefined) {
-      // Delete existing options
+      const incoming = options as { id?: string; value: string; color?: string }[];
+      const keptIds = incoming.filter((o) => o.id).map((o) => o.id!);
+
+      // Delete options that were removed
       await prisma.columnOption.deleteMany({
-        where: { columnId: id },
+        where: { columnId: id, ...(keptIds.length > 0 ? { id: { notIn: keptIds } } : {}) },
       });
 
-      // Create new options
-      if (options.length > 0) {
-        await prisma.columnOption.createMany({
-          data: options.map((opt: { value: string; color?: string }, idx: number) => ({
-            columnId: id,
-            value: opt.value,
-            color: opt.color,
-            order: idx,
-          })),
-        });
+      // Update existing options and create new ones
+      for (let idx = 0; idx < incoming.length; idx++) {
+        const opt = incoming[idx];
+        if (opt.id) {
+          await prisma.columnOption.update({
+            where: { id: opt.id },
+            data: { value: opt.value, color: opt.color ?? null, order: idx },
+          });
+        } else {
+          await prisma.columnOption.create({
+            data: { columnId: id, value: opt.value, color: opt.color ?? null, order: idx },
+          });
+        }
       }
     }
 

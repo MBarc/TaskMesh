@@ -279,6 +279,14 @@ export async function applyUpdate(): Promise<void> {
   }
 
   if (os === 'windows') {
+    // Pre-flight: verify the installer asset exists on GitHub before triggering anything.
+    // Without this, a release published without TaskMesh-Setup.exe causes the scheduled
+    // task to exit silently and the UI to poll indefinitely with no feedback.
+    const preflightRelease = await fetchGitHubRelease(`v${status.latestVersion}`);
+    if (!preflightRelease) throw new Error('Could not fetch release details from GitHub');
+    const preflightAsset = preflightRelease.assets.find(a => a.name === 'TaskMesh-Setup.exe');
+    if (!preflightAsset) throw new Error(`TaskMesh-Setup.exe is missing from the v${status.latestVersion} release. The update cannot proceed — please try again later.`);
+
     // Prefer the pre-installed updater script (always present when auto-update is enabled).
     // Falls back to spawning a fresh download directly if the script is somehow missing.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
@@ -316,11 +324,15 @@ export async function applyUpdate(): Promise<void> {
 
     const tmpPath = path.join(require('os').tmpdir(), `TaskMesh-Setup-${status.latestVersion}.exe`);
 
-    // Download then launch — done in a detached PowerShell so it outlives this process
+    // Download then launch — done in a detached PowerShell so it outlives this process.
+    // Stop the service first so the installer can overwrite files, matching the
+    // behaviour of check-updates.ps1 (the preferred path).
     const script = [
       `$url = '${asset.browser_download_url}'`,
       `$out = '${tmpPath.replace(/'/g, "''")}'`,
       `Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing`,
+      `& sc.exe stop TaskMesh-Server`,
+      `Start-Sleep -Seconds 5`,
       `Start-Process -FilePath $out -ArgumentList '/QUIET','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`,
     ].join('; ');
 

@@ -115,7 +115,7 @@ interface BoardState {
 
   // Column actions
   addColumn: (name: string, type: ColumnType, options?: { value: string; color?: string }[]) => Promise<void>;
-  updateColumn: (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => Promise<void>;
+  updateColumn: (columnId: string, name: string, options?: { id?: string; value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => Promise<void>;
   deleteColumn: (columnId: string) => Promise<void>;
   reorderColumns: (columnIds: string[]) => Promise<void>;
   ensureSourceColumn: () => Promise<Column | null>;
@@ -353,7 +353,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }
   },
 
-  updateColumn: async (columnId: string, name: string, options?: { value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => {
+  updateColumn: async (columnId: string, name: string, options?: { id?: string; value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => {
     try {
       const updatedColumn = await api.updateColumn(columnId, name, options, requiredForCompletion, alignment);
       set((state) => ({

@@ -1,6 +1,13 @@
 # TaskMesh Auto-Updater
-# Scheduled weekly via Task Scheduler.
+# Scheduled weekly via Task Scheduler, or triggered on-demand via schtasks /Run.
 # Checks the GitHub Releases API for a newer version and silently installs it.
+#
+# Parameters:
+#   -Force : Skip the AutoUpdateEnabled registry guard.
+#             Always set for the on-demand TaskMesh-ApplyUpdate task so that
+#             the user can manually update even when auto-updates are disabled.
+
+param([switch]$Force)
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -50,8 +57,9 @@ if (-not $installedVersion) {
 # Respect the in-app auto-update toggle (stored in registry by install-services.ps1 / the settings API).
 # Value '0' means the user disabled auto-update from within the app — exit cleanly so the weekly
 # scheduled task is a no-op until they re-enable it.
+# -Force bypasses this guard for on-demand updates triggered by the user via the UI.
 $autoUpdateEnabled = $regProps.AutoUpdateEnabled
-if ($autoUpdateEnabled -eq '0') {
+if ($autoUpdateEnabled -eq '0' -and -not $Force) {
     Write-Log "Auto-update is disabled in app settings. Exiting."
     exit 0
 }

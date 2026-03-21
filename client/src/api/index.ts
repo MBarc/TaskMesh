@@ -69,7 +69,7 @@ export async function addColumn(
 export async function updateColumn(
   columnId: string,
   name: string,
-  options?: { value: string; color?: string }[],
+  options?: { id?: string; value: string; color?: string }[],
   requiredForCompletion?: boolean,
   alignment?: string
 ): Promise<Column> {
@@ -768,6 +768,32 @@ export async function exportAll(): Promise<void> {
   if (!response.ok) throw new Error('Export failed');
   const blob = await response.blob();
   triggerDownload(blob, `taskmesh-export-${new Date().toISOString().split('T')[0]}.zip`);
+}
+
+export async function exportBoards(boardIds: string[], format: 'csv' | 'json'): Promise<void> {
+  const response = await fetch(`${API_URL}/api/export/boards`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boardIds, format }),
+  });
+  if (!response.ok) throw new Error('Export failed');
+  const blob = await response.blob();
+  const cd = response.headers.get('content-disposition') ?? '';
+  const filename =
+    cd.match(/filename="([^"]+)"/)?.[1] ??
+    `taskmesh-export-${new Date().toISOString().split('T')[0]}.${boardIds.length === 1 ? format : 'zip'}`;
+  triggerDownload(blob, filename);
+}
+
+export async function importBoards(file: File): Promise<{ boardCount: number; taskCount: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_URL}/api/import/all`, { method: 'POST', body: formData });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Import failed' }));
+    throw new Error((err as { error?: string }).error ?? 'Import failed');
+  }
+  return response.json();
 }
 
 // Notifications API

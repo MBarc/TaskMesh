@@ -341,7 +341,7 @@ if (Test-Path $updateScript) {
         Unregister-ScheduledTask -TaskName $onDemandName -Confirm:$false -ErrorAction SilentlyContinue
 
         $onDemandAction    = New-ScheduledTaskAction -Execute "powershell.exe" `
-                                -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
+                                -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q + " -Force")
         $onDemandPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $onDemandSettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
                                  -MultipleInstances IgnoreNew

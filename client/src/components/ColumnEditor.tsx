@@ -209,7 +209,7 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
       editingColumn.id,
       editingColumn.name,
       needsOptions(editingColumn.type)
-        ? editingColumn.options.map((o) => ({ value: o.value, color: o.color }))
+        ? editingColumn.options.map((o) => ({ id: o.id.startsWith('temp-') ? undefined : o.id, value: o.value, color: o.color }))
         : undefined,
       undefined,
       editingColumn.alignment,
