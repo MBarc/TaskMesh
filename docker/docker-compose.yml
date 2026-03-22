@@ -72,6 +72,7 @@ services:
       - ../.env
     environment:
       - DOCUMENTATION_PATH=/documentation
+      - LICENSE_VALIDATION_URL=http://host.docker.internal:3001/api/license/validate
     volumes:
       - uploads:/app/uploads
       - ${DOCUMENTATION_PATH:-../documentation}:/documentation

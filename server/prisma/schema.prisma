@@ -236,16 +236,20 @@ model ConnectorConfig {
 }
 
 model AppSettings {
-  id                   String   @id @default("singleton")
-  archiveEnabled       Boolean  @default(false)
-  archiveRetentionDays Int      @default(30)
-  telemetryEnabled     Boolean  @default(false)
+  id                   String    @id @default("singleton")
+  archiveEnabled       Boolean   @default(false)
+  archiveRetentionDays Int       @default(30)
+  telemetryEnabled     Boolean   @default(false)
   installUUID          String?
-  activeThemeId        String   @default("default-light")
-  autoUpdateEnabled    Boolean  @default(true)
+  activeThemeId        String    @default("default-light")
+  autoUpdateEnabled    Boolean   @default(true)
   lastSeenVersion      String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  licenseKey           String?
+  licenseTier          String?
+  licenseExpiresAt     DateTime?
+  licenseActivatedAt   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 model TranscriptionJob {

@@ -28,6 +28,7 @@ import { CustomThemeImport } from './components/CustomThemeImport';
 import { ConnectorImport } from './components/ConnectorImport';
 import { ThemeStudio } from './components/ThemeStudio';
 import { ArchiveSettings } from './components/ArchiveSettings';
+import { LicenseSettings } from './components/LicenseSettings';
 import { PrivacySettings } from './components/PrivacySettings';
 import { UpdateSettings } from './components/UpdateSettings';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
@@ -37,7 +38,7 @@ import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
 import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
-import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
 import * as api from './api';
 
 // Static pages + dynamic connector pages (connector:{id} or connector:{id}:{instanceId})
@@ -342,6 +343,7 @@ function App() {
         { id: 'appearance',         label: 'Appearance',          icon: Paintbrush },
         { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts',  icon: Keyboard },
         { id: 'archive',            label: 'Archive',             icon: Archive },
+        { id: 'license',            label: 'License',             icon: KeyRound },
         { id: 'data',               label: 'Data',                icon: Database },
         { id: 'privacy',            label: 'Privacy',             icon: Shield },
         { id: 'updates',            label: 'Updates',             icon: Download },
@@ -827,6 +829,11 @@ function App() {
               {/* Archive Settings */}
               {activeSettingsPage === 'archive' && (
                 <ArchiveSettings />
+              )}
+
+              {/* License */}
+              {activeSettingsPage === 'license' && (
+                <LicenseSettings />
               )}
 
               {/* Data */}

@@ -864,6 +864,29 @@ export interface AppSettings {
   autoUpdateEnabled: boolean;
 }
 
+// ── License API ──
+export interface LicenseInfo {
+  licenseKey: string | null;
+  licenseTier: string | null;
+  licenseExpiresAt: string | null;
+  licenseActivatedAt: string | null;
+}
+
+export async function getLicense(): Promise<LicenseInfo> {
+  return fetchAPI<LicenseInfo>('/api/license');
+}
+
+export async function activateLicense(key: string): Promise<LicenseInfo> {
+  return fetchAPI<LicenseInfo>('/api/license', {
+    method: 'POST',
+    body: JSON.stringify({ key }),
+  });
+}
+
+export async function deactivateLicense(): Promise<void> {
+  return fetchAPI<void>('/api/license', { method: 'DELETE' });
+}
+
 export interface UpdateStatus {
   currentVersion: string;
   latestVersion: string | null;
