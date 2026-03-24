@@ -21,6 +21,7 @@ import { startEmailPoller, stopEmailPoller } from './lib/emailPoller.js';
 import { startArchiveCleaner, stopArchiveCleaner } from './lib/archiveCleaner.js';
 import { startNotificationPoller, stopNotificationPoller } from './lib/notificationPoller.js';
 import { startUpdateChecker, stopUpdateChecker } from './lib/updateChecker.js';
+import { startLicensePoller, stopLicensePoller } from './lib/licensePoller.js';
 import { registerAllConnectors } from './connectors/registry.js';
 import { connectorImportRouter } from './routes/connectorImport.js';
 import { settingsRoutes } from './routes/settings.js';
@@ -124,6 +125,7 @@ async function start() {
     startArchiveCleaner();
     startNotificationPoller();
     startUpdateChecker();
+    startLicensePoller();
     capture('app_started', { version: process.env.npm_package_version ?? 'unknown' });
   });
 
@@ -132,6 +134,7 @@ async function start() {
     stopArchiveCleaner();
     stopNotificationPoller();
     stopUpdateChecker();
+    stopLicensePoller();
     await shutdown();
     process.exit(0);
   });

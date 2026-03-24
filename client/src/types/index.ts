@@ -1,6 +1,6 @@
 export type ColumnType = 'TEXT' | 'DROPDOWN' | 'MULTI_SELECT' | 'DATE' | 'CHECKBOX' | 'NUMBER' | 'SOURCE' | 'ADO_PUSH' | 'ITEM_NO' | 'SNOW_PUSH' | 'EMAIL' | 'DOCUMENTATION';
 
-export type Platform = 'zoom' | 'teams' | 'google_meet' | 'slack' | 'webex' | 'ado' | 'servicenow' | 'outlook' | 'gmail' | 'unknown';
+export type Platform = 'zoom' | 'teams' | 'google_meet' | 'slack' | 'webex' | 'ado' | 'servicenow' | 'outlook' | 'gmail' | 'api' | 'unknown';
 
 export type EmailProvider = 'outlook' | 'gmail';
 

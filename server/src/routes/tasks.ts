@@ -25,6 +25,7 @@ taskRoutes.post('/boards/:boardId/tasks', requireScope('tasks:write'), async (re
   try {
     const { boardId } = req.params as Record<string, string>;
     const { cellValues } = req.body;
+    const isApiRequest = !!(req as any).apiKey;
 
     // Get max order for this board
     const maxOrder = await prisma.task.aggregate({
@@ -34,12 +35,26 @@ taskRoutes.post('/boards/:boardId/tasks', requireScope('tasks:write'), async (re
 
     const newOrder = (maxOrder._max?.order ?? -1) + 1;
 
+    // If the request came from an API key, auto-populate the SOURCE column
+    let mergedCellValues = cellValues ? { ...cellValues } : {};
+    if (isApiRequest) {
+      const sourceColumn = await prisma.column.findFirst({
+        where: { boardId, type: 'SOURCE' },
+        select: { id: true },
+      });
+      if (sourceColumn && !(sourceColumn.id in mergedCellValues)) {
+        mergedCellValues[sourceColumn.id] = JSON.stringify({ platform: 'api', extractionId: '', taskTitle: '' });
+      }
+    }
+
+    const cellEntries = Object.entries(mergedCellValues);
+
     const task = await prisma.task.create({
       data: {
         boardId,
         order: newOrder,
-        cellValues: cellValues ? {
-          create: Object.entries(cellValues).map(([columnId, value]) => ({
+        cellValues: cellEntries.length > 0 ? {
+          create: cellEntries.map(([columnId, value]) => ({
             columnId,
             value: String(value),
           })),
@@ -50,7 +65,7 @@ taskRoutes.post('/boards/:boardId/tasks', requireScope('tasks:write'), async (re
       },
     });
 
-    capture('task_created', { source: 'manual' });
+    capture('task_created', { source: isApiRequest ? 'api' : 'manual' });
     res.status(201).json(task);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -293,6 +308,7 @@ taskRoutes.post('/boards/:boardId/tasks/bulk', requireScope('tasks:write'), asyn
   try {
     const { boardId } = req.params as Record<string, string>;
     const { tasks } = req.body;
+    const isApiRequest = !!(req as any).apiKey;
 
     if (!Array.isArray(tasks)) {
       return res.status(400).json({ error: 'tasks must be an array' });
@@ -306,15 +322,32 @@ taskRoutes.post('/boards/:boardId/tasks/bulk', requireScope('tasks:write'), asyn
 
     let currentOrder = (maxOrder._max?.order ?? -1) + 1;
 
+    // Pre-fetch the SOURCE column once if this is an API request
+    let sourceColumnId: string | null = null;
+    if (isApiRequest) {
+      const sourceColumn = await prisma.column.findFirst({
+        where: { boardId, type: 'SOURCE' },
+        select: { id: true },
+      });
+      sourceColumnId = sourceColumn?.id ?? null;
+    }
+
     const createdTasks = [];
 
     for (const taskData of tasks) {
+      let mergedCellValues = taskData.cellValues ? { ...taskData.cellValues } : {};
+      if (sourceColumnId && !(sourceColumnId in mergedCellValues)) {
+        mergedCellValues[sourceColumnId] = JSON.stringify({ platform: 'api', extractionId: '', taskTitle: '' });
+      }
+
+      const cellEntries = Object.entries(mergedCellValues);
+
       const task = await prisma.task.create({
         data: {
           boardId,
           order: currentOrder++,
-          cellValues: taskData.cellValues ? {
-            create: Object.entries(taskData.cellValues).map(([columnId, value]) => ({
+          cellValues: cellEntries.length > 0 ? {
+            create: cellEntries.map(([columnId, value]) => ({
               columnId,
               value: String(value),
             })),
@@ -327,7 +360,7 @@ taskRoutes.post('/boards/:boardId/tasks/bulk', requireScope('tasks:write'), asyn
       createdTasks.push(task);
     }
 
-    capture('task_created', { source: 'connector_import', count: createdTasks.length });
+    capture('task_created', { source: isApiRequest ? 'api' : 'connector_import', count: createdTasks.length });
     res.status(201).json(createdTasks);
   } catch (error) {
     console.error('Error bulk creating tasks:', error);

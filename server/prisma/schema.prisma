@@ -248,6 +248,8 @@ model AppSettings {
   licenseTier          String?
   licenseExpiresAt     DateTime?
   licenseActivatedAt   DateTime?
+  machineId            String?
+  lastValidatedAt      DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }

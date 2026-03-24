@@ -15,6 +15,7 @@ const platformLabels: Record<Platform, string> = {
   servicenow: 'ServiceNow',
   outlook: 'Outlook',
   gmail: 'Gmail',
+  api: 'API Request',
   unknown: 'Meeting',
 };
 

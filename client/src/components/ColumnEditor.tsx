@@ -102,10 +102,15 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
   const needsOptions = (type: ColumnType) => type === 'DROPDOWN' || type === 'MULTI_SELECT';
   const isManagedTypeSelected = MANAGED_TYPES.has(newColumnType);
 
-  // Drag state
+  // Drag state — columns
   const dragColIndex = useRef<number | null>(null);
   const [dragOverColIndex, setDragOverColIndex] = useState<number | null>(null);
   const [isDraggingCol, setIsDraggingCol] = useState(false);
+
+  // Drag state — options
+  const dragOptIndex = useRef<number | null>(null);
+  const [dragOverOptIndex, setDragOverOptIndex] = useState<number | null>(null);
+  const [isDraggingOpt, setIsDraggingOpt] = useState(false);
 
   const columns = currentBoard?.columns || [];
 
@@ -152,6 +157,60 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
     setIsDraggingCol(false);
     setDragOverColIndex(null);
   }, [columns, reorderColumns]);
+
+  const handleOptDragStart = useCallback((e: React.DragEvent, index: number) => {
+    e.stopPropagation();
+    dragOptIndex.current = index;
+    setIsDraggingOpt(true);
+    e.dataTransfer.effectAllowed = 'move';
+    const ghost = document.createElement('div');
+    ghost.style.opacity = '0';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    requestAnimationFrame(() => document.body.removeChild(ghost));
+  }, []);
+
+  const handleOptDragEnd = useCallback(() => {
+    dragOptIndex.current = null;
+    setIsDraggingOpt(false);
+    setDragOverOptIndex(null);
+  }, []);
+
+  const handleOptDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverOptIndex(index);
+  }, []);
+
+  const handleOptDrop = useCallback((e: React.DragEvent, dropIndex: number, isNew: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const fromIndex = dragOptIndex.current;
+    if (fromIndex === null || fromIndex === dropIndex) {
+      setDragOverOptIndex(null);
+      setIsDraggingOpt(false);
+      return;
+    }
+    if (isNew) {
+      setNewColumnOptions((prev) => {
+        const reordered = [...prev];
+        const [moved] = reordered.splice(fromIndex, 1);
+        reordered.splice(dropIndex, 0, moved);
+        return reordered;
+      });
+    } else {
+      setEditingColumn((prev) => {
+        if (!prev) return prev;
+        const reordered = [...prev.options];
+        const [moved] = reordered.splice(fromIndex, 1);
+        reordered.splice(dropIndex, 0, moved);
+        return { ...prev, options: reordered };
+      });
+    }
+    dragOptIndex.current = null;
+    setIsDraggingOpt(false);
+    setDragOverOptIndex(null);
+  }, []);
 
   const handleAddColumn = async () => {
     setAddError(null);
@@ -319,26 +378,46 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
                       {needsOptions(editingColumn.type) && (
                         <div className="space-y-2">
                           <div className="text-xs font-medium text-text-secondary">Options</div>
-                          {editingColumn.options.map((option, idx) => (
-                            <div key={option.id} className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={option.value}
-                                onChange={(e) => updateOption(false, idx, e.target.value, option.color)}
-                                placeholder="Option value"
-                                className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary"
-                              />
-                              <input
-                                type="color"
-                                value={option.color || '#6366f1'}
-                                onChange={(e) => updateOption(false, idx, option.value, e.target.value)}
-                                className="w-8 h-8 rounded cursor-pointer"
-                              />
-                              <button onClick={() => removeOption(false, idx)} className="p-1 text-text-muted hover:text-red-500">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
+                          {editingColumn.options.map((option, idx) => {
+                            const isOptBeingDragged = isDraggingOpt && dragOptIndex.current === idx;
+                            const isOptOver = isDraggingOpt && dragOverOptIndex === idx && dragOptIndex.current !== idx;
+                            const optDropAbove = isOptOver && dragOptIndex.current !== null && dragOptIndex.current > idx;
+                            const optDropBelow = isOptOver && dragOptIndex.current !== null && dragOptIndex.current < idx;
+                            return (
+                              <div
+                                key={option.id}
+                                draggable
+                                onDragStart={(e) => handleOptDragStart(e, idx)}
+                                onDragEnd={handleOptDragEnd}
+                                onDragOver={(e) => handleOptDragOver(e, idx)}
+                                onDrop={(e) => handleOptDrop(e, idx, false)}
+                                className="flex items-center gap-2 transition-opacity"
+                                style={{
+                                  opacity: isOptBeingDragged ? 0.4 : 1,
+                                  borderTop: optDropAbove ? '2px solid var(--color-primary-500, #6366f1)' : undefined,
+                                  borderBottom: optDropBelow ? '2px solid var(--color-primary-500, #6366f1)' : undefined,
+                                }}
+                              >
+                                <GripVertical className="w-4 h-4 text-text-muted cursor-grab shrink-0" />
+                                <input
+                                  type="text"
+                                  value={option.value}
+                                  onChange={(e) => updateOption(false, idx, e.target.value, option.color)}
+                                  placeholder="Option value"
+                                  className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary"
+                                />
+                                <input
+                                  type="color"
+                                  value={option.color || '#6366f1'}
+                                  onChange={(e) => updateOption(false, idx, option.value, e.target.value)}
+                                  className="w-8 h-8 rounded cursor-pointer"
+                                />
+                                <button onClick={() => removeOption(false, idx)} className="p-1 text-text-muted hover:text-red-500">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            );
+                          })}
                           <button onClick={() => addOption(false)} className="flex items-center gap-1 text-sm text-primary-500 hover:text-primary-600">
                             <Plus className="w-4 h-4" />Add option
                           </button>
@@ -434,26 +513,46 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
                   <div>
                     <label className="block text-sm font-medium text-text-primary mb-2">Options</label>
                     <div className="space-y-2">
-                      {newColumnOptions.map((option, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={option.value}
-                            onChange={(e) => updateOption(true, idx, e.target.value, option.color)}
-                            placeholder="Option value"
-                            className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary"
-                          />
-                          <input
-                            type="color"
-                            value={option.color || '#6366f1'}
-                            onChange={(e) => updateOption(true, idx, option.value, e.target.value)}
-                            className="w-8 h-8 rounded cursor-pointer"
-                          />
-                          <button onClick={() => removeOption(true, idx)} className="p-1 text-text-muted hover:text-red-500">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                      {newColumnOptions.map((option, idx) => {
+                        const isOptBeingDragged = isDraggingOpt && dragOptIndex.current === idx;
+                        const isOptOver = isDraggingOpt && dragOverOptIndex === idx && dragOptIndex.current !== idx;
+                        const optDropAbove = isOptOver && dragOptIndex.current !== null && dragOptIndex.current > idx;
+                        const optDropBelow = isOptOver && dragOptIndex.current !== null && dragOptIndex.current < idx;
+                        return (
+                          <div
+                            key={idx}
+                            draggable
+                            onDragStart={(e) => handleOptDragStart(e, idx)}
+                            onDragEnd={handleOptDragEnd}
+                            onDragOver={(e) => handleOptDragOver(e, idx)}
+                            onDrop={(e) => handleOptDrop(e, idx, true)}
+                            className="flex items-center gap-2 transition-opacity"
+                            style={{
+                              opacity: isOptBeingDragged ? 0.4 : 1,
+                              borderTop: optDropAbove ? '2px solid var(--color-primary-500, #6366f1)' : undefined,
+                              borderBottom: optDropBelow ? '2px solid var(--color-primary-500, #6366f1)' : undefined,
+                            }}
+                          >
+                            <GripVertical className="w-4 h-4 text-text-muted cursor-grab shrink-0" />
+                            <input
+                              type="text"
+                              value={option.value}
+                              onChange={(e) => updateOption(true, idx, e.target.value, option.color)}
+                              placeholder="Option value"
+                              className="flex-1 px-2 py-1 text-sm bg-surface border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary-500 text-text-primary"
+                            />
+                            <input
+                              type="color"
+                              value={option.color || '#6366f1'}
+                              onChange={(e) => updateOption(true, idx, option.value, e.target.value)}
+                              className="w-8 h-8 rounded cursor-pointer"
+                            />
+                            <button onClick={() => removeOption(true, idx)} className="p-1 text-text-muted hover:text-red-500">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })}
                       <button onClick={() => addOption(true)} className="flex items-center gap-1 text-sm text-primary-500 hover:text-primary-600">
                         <Plus className="w-4 h-4" />Add option
                       </button>
