@@ -63,6 +63,7 @@ model Task {
   boardId    String
   board      Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
   order      Int
+  notes      String      @default("")
   cellValues CellValue[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt

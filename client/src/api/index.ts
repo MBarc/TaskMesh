@@ -113,6 +113,13 @@ export async function updateTask(
   });
 }
 
+export async function updateTaskNotes(taskId: string, notes: string): Promise<Task> {
+  return fetchAPI<Task>(`/api/tasks/${taskId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ notes }),
+  });
+}
+
 export async function deleteTask(taskId: string): Promise<void> {
   return fetchAPI<void>(`/api/tasks/${taskId}`, {
     method: 'DELETE',

@@ -204,6 +204,7 @@ export interface Task {
   id: string;
   boardId: string;
   order: number;
+  notes: string;
   cellValues: CellValue[];
   createdAt: string;
   updatedAt: string;

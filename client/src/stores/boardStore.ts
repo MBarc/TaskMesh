@@ -136,6 +136,7 @@ interface BoardState {
   // Task actions
   addTask: (cellValues?: Record<string, string>) => Promise<void>;
   updateTask: (taskId: string, cellValues: Record<string, string>) => Promise<void>;
+  updateTaskNotes: (taskId: string, notes: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   reorderTasks: (taskIds: string[]) => Promise<void>;
   bulkCreateTasks: (tasks: { cellValues: Record<string, string> }[]) => Promise<void>;
@@ -682,6 +683,24 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }));
     } catch (error) {
       set({ error: 'Failed to update task' });
+    }
+  },
+
+  updateTaskNotes: async (taskId: string, notes: string) => {
+    try {
+      const task = await api.updateTaskNotes(taskId, notes);
+      set((state) => ({
+        currentBoard: state.currentBoard
+          ? {
+              ...state.currentBoard,
+              tasks: state.currentBoard.tasks.map(t =>
+                t.id === taskId ? task : t
+              ),
+            }
+          : null,
+      }));
+    } catch (error) {
+      set({ error: 'Failed to update task notes' });
     }
   },
 

@@ -5,7 +5,7 @@ import {
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { Plus, Trash2, GripVertical, Loader2, AlertTriangle, Copy, X, Download, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Loader2, AlertTriangle, Copy, X, Download, ChevronUp, ChevronDown, ChevronsUpDown, StickyNote } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { useShortcutStore, normalizeKey } from '../stores/shortcutStore';
@@ -105,7 +105,7 @@ function isColumnCompleted(columnType: ColumnType, cellValue: string | undefined
 }
 
 export function TodoTable() {
-  const { currentBoard, addTask, deleteTask, updateTask, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, highlightedTaskId, setHighlightedTaskId } = useBoardStore();
+  const { currentBoard, addTask, deleteTask, updateTask, updateTaskNotes, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, highlightedTaskId, setHighlightedTaskId } = useBoardStore();
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ taskId: string; incompleteColumns: { name: string; type: ColumnType }[] } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
@@ -115,6 +115,12 @@ export function TodoTable() {
   const [bulkWorking, setBulkWorking] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const archiveEnabled = useArchiveStore((s) => s.settings?.archiveEnabled ?? false);
+
+  // Notes expansion state
+  const [notesOpenTaskId, setNotesOpenTaskId] = useState<string | null>(null);
+  const [notesValue, setNotesValue] = useState('');
+  const notesRowRef = useRef<HTMLTableRowElement>(null);
+  const notesSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keyboard focus model
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colIndex: number } | null>(null);
@@ -141,6 +147,40 @@ export function TodoTable() {
     const timer = setTimeout(() => setHighlightedTaskId(null), 2000);
     return () => clearTimeout(timer);
   }, [highlightedTaskId, tasks, setHighlightedTaskId]);
+
+  // Notes expansion: click-outside to close + save
+  useEffect(() => {
+    if (!notesOpenTaskId) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (notesRowRef.current && !notesRowRef.current.contains(e.target as Node)) {
+        if (notesSaveTimeout.current) clearTimeout(notesSaveTimeout.current);
+        updateTaskNotes(notesOpenTaskId, notesValue);
+        setNotesOpenTaskId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [notesOpenTaskId, notesValue, updateTaskNotes]);
+
+  const handleNotesOpen = useCallback((e: React.MouseEvent<HTMLButtonElement>, taskId: string, currentNotes: string) => {
+    e.stopPropagation();
+    if (notesOpenTaskId === taskId) {
+      if (notesSaveTimeout.current) clearTimeout(notesSaveTimeout.current);
+      updateTaskNotes(taskId, notesValue);
+      setNotesOpenTaskId(null);
+      return;
+    }
+    setNotesValue(currentNotes);
+    setNotesOpenTaskId(taskId);
+  }, [notesOpenTaskId, notesValue, updateTaskNotes]);
+
+  const handleNotesChange = useCallback((value: string) => {
+    setNotesValue(value);
+    if (notesSaveTimeout.current) clearTimeout(notesSaveTimeout.current);
+    notesSaveTimeout.current = setTimeout(() => {
+      if (notesOpenTaskId) updateTaskNotes(notesOpenTaskId, value);
+    }, 600);
+  }, [notesOpenTaskId, updateTaskNotes]);
 
   // Sorted display order (does not mutate the store's task array)
   const displayTasks = useMemo(() => {
@@ -647,7 +687,7 @@ export function TodoTable() {
   // Transform tasks into row data with cell values mapped (uses sorted display order)
   const data = useMemo(() => {
     return displayTasks.map((task) => {
-      const row: Record<string, string> = { id: task.id, _createdAt: task.createdAt };
+      const row: Record<string, string> = { id: task.id, _createdAt: task.createdAt, _notes: task.notes || '' };
       task.cellValues.forEach((cv) => {
         row[cv.columnId] = cv.value;
       });
@@ -946,29 +986,41 @@ export function TodoTable() {
     cols.push({
       id: 'actions',
       header: '',
-      size: 72,
-      cell: ({ row }) => (
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => handleDuplicateTask(row.original.id)}
-            title="Duplicate row"
-            className="p-1 text-text-muted hover:text-primary-500 rounded hover:bg-surface-tertiary"
-          >
-            <Copy className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleDeleteTask(row.original.id)}
-            title="Delete row"
-            className="p-1 text-text-muted hover:text-red-500 rounded hover:bg-surface-tertiary"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      ),
+      size: 96,
+      cell: ({ row }) => {
+        const taskId = row.original.id;
+        const notes = row.original._notes || '';
+        const hasNotes = notes.length > 0;
+        return (
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={(e) => handleNotesOpen(e, taskId, notes)}
+              title="Notes"
+              className={`p-1 rounded hover:bg-surface-tertiary ${notesOpenTaskId === taskId ? 'text-primary-500' : hasNotes ? 'text-primary-400' : 'text-text-muted hover:text-primary-500'}`}
+            >
+              <StickyNote className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleDuplicateTask(row.original.id)}
+              title="Duplicate row"
+              className="p-1 text-text-muted hover:text-primary-500 rounded hover:bg-surface-tertiary"
+            >
+              <Copy className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleDeleteTask(row.original.id)}
+              title="Delete row"
+              className="p-1 text-text-muted hover:text-red-500 rounded hover:bg-surface-tertiary"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      },
     });
 
     return cols;
-  }, [columns, editingCell, updateTask, handleDeleteTask, handleDuplicateTask, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, currentBoard, showNewBadge]);
+  }, [columns, editingCell, updateTask, handleDeleteTask, handleDuplicateTask, handleNotesOpen, notesOpenTaskId, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, currentBoard, showNewBadge]);
 
   const table = useReactTable({
     data,
@@ -1106,6 +1158,7 @@ export function TodoTable() {
               const isHighlighted = highlightedTaskId === row.original.id;
 
               return (
+                <>
                 <tr
                   key={row.id}
                   ref={(el) => {
@@ -1217,6 +1270,17 @@ export function TodoTable() {
                         })() : isActionsCol ? (
                           <div className="flex items-center gap-0.5">
                             <button
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => handleNotesOpen(e, row.original.id, row.original._notes || '')}
+                              title="Notes"
+                              className={`p-1 rounded transition-colors relative ${notesOpenTaskId === row.original.id ? 'text-primary-500 bg-surface-tertiary' : 'text-text-muted hover:text-primary-500 hover:bg-surface-tertiary'}`}
+                            >
+                              <StickyNote className="w-4 h-4" />
+                              {(row.original._notes || '').length > 0 && (
+                                <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-primary-500" />
+                              )}
+                            </button>
+                            <button
                               onClick={(e) => { e.stopPropagation(); handleDuplicateTask(row.original.id); }}
                               title="Duplicate row"
                               className={`p-1 rounded transition-colors ${isDuplicateFocused ? 'ring-2 ring-primary-500 ring-inset text-primary-500 bg-surface-tertiary' : 'text-text-muted hover:text-primary-500 hover:bg-surface-tertiary'}`}
@@ -1236,6 +1300,29 @@ export function TodoTable() {
                     );
                   })}
                 </tr>
+                {notesOpenTaskId === row.original.id && (
+                  <tr ref={notesRowRef} key={`${row.id}-notes`} className="border-b border-border bg-surface-secondary">
+                    <td colSpan={columns.length + 2} className="pl-12 pr-4 py-3 border-l-2 border-primary-500">
+                      <textarea
+                        autoFocus
+                        value={notesValue}
+                        onChange={(e) => handleNotesChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            if (notesSaveTimeout.current) clearTimeout(notesSaveTimeout.current);
+                            updateTaskNotes(notesOpenTaskId, notesValue);
+                            setNotesOpenTaskId(null);
+                          }
+                        }}
+                        placeholder="Jot down anything useful for this task..."
+                        rows={3}
+                        className="w-full resize-none bg-surface text-sm text-text-primary placeholder:text-text-muted p-2 rounded border border-border focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
+                      />
+                      <p className="text-xs text-text-muted mt-1.5">A scratchpad for this task. AI pulls from these notes when generating docs and connector data.</p>
+                    </td>
+                  </tr>
+                )}
+                </>
               );
             })}
           </tbody>

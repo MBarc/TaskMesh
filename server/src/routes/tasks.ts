@@ -92,7 +92,15 @@ taskRoutes.post('/boards/:boardId/tasks', requireScope('tasks:write'), async (re
 taskRoutes.put('/:id', requireScope('tasks:write'), async (req, res) => {
   try {
     const { id } = req.params as Record<string, string>;
-    const { cellValues } = req.body;
+    const { cellValues, notes } = req.body;
+
+    // Update notes if provided
+    if (notes !== undefined) {
+      await prisma.task.update({
+        where: { id },
+        data: { notes: String(notes) },
+      });
+    }
 
     // Update cell values using upsert
     if (cellValues) {
@@ -207,6 +215,7 @@ taskRoutes.delete('/:id', requireScope('tasks:write'), async (req, res) => {
 
         const snapshot = {
           columns: snapshotColumns,
+          notes: task.notes,
           order: task.order,
           createdAt: task.createdAt,
           updatedAt: task.updatedAt,
