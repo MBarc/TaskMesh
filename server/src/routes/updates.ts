@@ -17,8 +17,15 @@ export const updateRoutes = Router();
 updateRoutes.get('/status', async (_req, res) => {
   try {
     const status = getUpdateStatus();
-    const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
-    const autoUpdateEnabled = settings?.autoUpdateEnabled ?? true;
+    // Isolated try/catch — a schema mismatch on AppSettings must not prevent
+    // the update status (in-memory) from being returned to the client.
+    let autoUpdateEnabled = true;
+    try {
+      const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+      autoUpdateEnabled = settings?.autoUpdateEnabled ?? true;
+    } catch {
+      // AppSettings unavailable — default to enabled
+    }
     res.json({ ...status, autoUpdateEnabled });
   } catch (error) {
     console.error('Error fetching update status:', error);

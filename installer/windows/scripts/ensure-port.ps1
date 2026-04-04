@@ -22,6 +22,39 @@ function Find-FreePort([int]$Start) {
     throw "No free port found from $Start"
 }
 
+function Set-ServicePort([int]$NewPort) {
+    $svcReg = "HKLM:\SYSTEM\CurrentControlSet\Services\TaskMesh-Server\Parameters"
+    if (-not (Test-Path $svcReg)) { New-Item -Path $svcReg -Force | Out-Null }
+    $envVars = @()
+    try { $envVars = (Get-ItemProperty $svcReg AppEnvironmentExtra).AppEnvironmentExtra } catch {}
+    if ($envVars | Where-Object { $_ -like "PORT=*" }) {
+        $envVars = $envVars | ForEach-Object { if ($_ -like "PORT=*") { "PORT=$NewPort" } else { $_ } }
+    } else {
+        $envVars += "PORT=$NewPort"
+    }
+    Set-ItemProperty $svcReg AppEnvironmentExtra $envVars -Type MultiString
+    Set-ItemProperty 'HKLM:\Software\TaskMesh' Port $NewPort.ToString()
+}
+
+# If port 80 was unavailable at install time (stored port > 1024), opportunistically
+# promote to port 80 now that it may have been freed (e.g. IIS stopped, reboot, etc.).
+# This restores the clean http://taskmesh.localhost URL without a port suffix.
+if ($storedPort -ne 80) {
+    $port80Free = $false
+    try {
+        $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 80)
+        $l.Start()
+        $l.Stop()
+        $port80Free = $true
+    } catch {}
+
+    if ($port80Free) {
+        Write-Host "[TaskMesh] Port 80 is now available — promoting from port $storedPort to port 80 (clean URL)." -ForegroundColor Green
+        Set-ServicePort -NewPort 80
+        exit 0
+    }
+}
+
 # Check if the stored port is available
 $portFree = $false
 try {
@@ -42,20 +75,4 @@ if ($storedPort -lt 1024) {
     $newPort = Find-FreePort -Start ($storedPort + 1)
 }
 Write-Host "[TaskMesh] Port $storedPort is in use — switching to port $newPort." -ForegroundColor Yellow
-
-# Update the NSSM service environment (PORT= entry in AppEnvironmentExtra)
-$svcReg = "HKLM:\SYSTEM\CurrentControlSet\Services\TaskMesh-Server\Parameters"
-if (-not (Test-Path $svcReg)) { New-Item -Path $svcReg -Force | Out-Null }
-
-$envVars = @()
-try { $envVars = (Get-ItemProperty $svcReg AppEnvironmentExtra).AppEnvironmentExtra } catch {}
-
-if ($envVars | Where-Object { $_ -like "PORT=*" }) {
-    $envVars = $envVars | ForEach-Object { if ($_ -like "PORT=*") { "PORT=$newPort" } else { $_ } }
-} else {
-    $envVars += "PORT=$newPort"
-}
-Set-ItemProperty $svcReg AppEnvironmentExtra $envVars -Type MultiString
-
-# Persist the new port so start-taskmesh.bat re-reads it
-Set-ItemProperty 'HKLM:\Software\TaskMesh' Port $newPort.ToString()
+Set-ServicePort -NewPort $newPort

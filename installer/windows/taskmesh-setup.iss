@@ -83,7 +83,7 @@ Source: "scripts\uninstall-services.ps1"; DestDir: "{app}\scripts"; Flags: ignor
 Source: "scripts\uninstall-ollama.ps1";   DestDir: "{app}\scripts"; Flags: ignoreversion; Components: ai
 Source: "scripts\ensure-port.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\start-taskmesh.bat";     DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "scripts\launch-taskmesh.vbs";    DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\launch-taskmesh.ps1";    DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\check-updates.ps1";      DestDir: "{app}\updater"; Flags: ignoreversion
 
 ; AI component (optional — only extracted when AI component is selected)
@@ -104,8 +104,10 @@ Name: "ai";   Description: "AI Features — task extraction & transcription (~1 
 ; ─── [Icons] ──────────────────────────────────────────────────────────────────
 [Icons]
 ; Start menu entries (always created)
-; Use wscript.exe + VBS so launching never opens a terminal window.
-Name: "{group}\{#AppName}";           Filename: "{sys}\wscript.exe"; Parameters: """{app}\scripts\launch-taskmesh.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\taskmesh.ico"
+; Use ps-launcher.exe + PS1 so launching never opens a terminal window.
+; ps-launcher.exe is a GUI-subsystem exe that runs PowerShell with CreateNoWindow=true,
+; avoiding both the VBScript deprecation warning and any console window flash.
+Name: "{group}\{#AppName}";           Filename: "{app}\scripts\ps-launcher.exe"; Parameters: """{app}\scripts\launch-taskmesh.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\taskmesh.ico"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 ; Desktop shortcut is created programmatically in CurStepChanged based on OptionsPage
 
@@ -1137,8 +1139,9 @@ begin
 
     // Read the actual port written by install-services.ps1 (may differ from 4000
     // if the script detected a conflict and auto-assigned a free port).
-    // Use the VBS launcher so shortcuts never open a terminal window.
-    VbsPath     := ExpandConstant('{app}\scripts\launch-taskmesh.vbs');
+    // Use ps-launcher.exe + PS1 so shortcuts never open a terminal window and
+    // avoid the VBScript deprecation warning triggered by wscript.exe.
+    VbsPath     := ExpandConstant('{app}\scripts\launch-taskmesh.ps1');
     AppIconPath := ExpandConstant('{app}\taskmesh.ico');
 
     // Desktop shortcut — created directly so it works regardless of wizard page state.
@@ -1146,7 +1149,7 @@ begin
     if OptionsPage.Values[2] then begin
       ShortcutPath := ExpandConstant('{commondesktop}\{#AppName}.lnk');
       CreateShellLink(ShortcutPath, 'Launch {#AppName}',
-        ExpandConstant('{sys}\wscript.exe'),
+        ExpandConstant('{app}\scripts\ps-launcher.exe'),
         '"' + VbsPath + '"',
         ExpandConstant('{app}'), AppIconPath, 0, SW_SHOWNORMAL);
     end;
@@ -1156,7 +1159,7 @@ begin
       RegWriteStringValue(HKCU,
         'Software\Microsoft\Windows\CurrentVersion\Run',
         '{#AppName}',
-        '"' + ExpandConstant('{sys}\wscript.exe') + '" "' + VbsPath + '"');
+        '"' + ExpandConstant('{app}\scripts\ps-launcher.exe') + '" "' + VbsPath + '"');
 
     // Store telemetry preference and a unique InstallID in the registry so the
     // uninstaller can fire a PostHog event even after the app is removed.
@@ -1221,7 +1224,7 @@ var
 begin
   if not InstallCompleted then Exit;
   if (CelebLaunchCheck = nil) or (not CelebLaunchCheck.Checked) then Exit;
-  Exec(ExpandConstant('{sys}\wscript.exe'),
-       '"' + ExpandConstant('{app}\scripts\launch-taskmesh.vbs') + '"',
+  Exec(ExpandConstant('{app}\scripts\ps-launcher.exe'),
+       '"' + ExpandConstant('{app}\scripts\launch-taskmesh.ps1') + '"',
        ExpandConstant('{app}'), SW_SHOW, ewNoWait, ResultCode);
 end;

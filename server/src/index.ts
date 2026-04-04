@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import swaggerUi from 'swagger-ui-express';
 import { boardRoutes } from './routes/boards.js';
 import { columnRoutes } from './routes/columns.js';
@@ -88,7 +89,54 @@ async function initializeTelemetryFromInstaller(): Promise<void> {
   }
 }
 
+// ── Schema migration (SQLite / installer deployments only) ───────────────────
+// Runs `prisma db push --accept-data-loss` at startup to add any columns that
+// were missing because the database was created by an older installer version.
+// This is a no-op when the schema is already current, and is skipped entirely
+// in Docker (PostgreSQL) deployments where migrations are managed externally.
+async function runSchemaMigration(): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  if (!dbUrl.startsWith('file:')) return; // PostgreSQL / Docker — skip
+
+  const serverDir = path.join(__dirname, '..');
+  const prismaScript = path.join(serverDir, 'node_modules', 'prisma', 'build', 'index.js');
+  if (!fs.existsSync(prismaScript)) {
+    console.warn('[migration] Prisma CLI not found — skipping schema sync.');
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const child = spawn(process.execPath, [prismaScript, 'db', 'push', '--accept-data-loss', '--skip-generate'], {
+      env: process.env,
+      cwd: serverDir,
+      stdio: 'pipe',
+    });
+
+    let out = '';
+    child.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
+    child.stderr?.on('data', (d: Buffer) => { out += d.toString(); });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log('[migration] Database schema is current.');
+      } else {
+        console.warn(`[migration] Schema migration exited with code ${code}: ${out.trim()}`);
+      }
+      resolve();
+    });
+
+    child.on('error', (err) => {
+      console.warn('[migration] Schema migration spawn error:', (err as Error).message);
+      resolve();
+    });
+  });
+}
+
 async function start() {
+  // Ensure the SQLite schema is current before any Prisma operations.
+  // Adds missing columns to existing databases from older installer versions.
+  await runSchemaMigration();
+
   // Connector SDK — auto-discover and register connectors
   const manifests = await registerAllConnectors(app, prisma);
   console.log(`Connector SDK: ${manifests.length} connector(s) registered`);

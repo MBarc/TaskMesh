@@ -363,19 +363,25 @@ if (Test-Path $updateScript) {
         try {
             $weeklyAction    = New-ScheduledTaskAction -Execute "powershell.exe" `
                                    -Argument ("-NonInteractive -NoProfile -ExecutionPolicy Bypass -File " + $q + $updateScript + $q)
+            # Primary trigger: weekly on Sunday at 09:00.
+            # Secondary trigger: at system startup with a 5-minute delay.
+            # The startup trigger catches missed Sunday windows (e.g. computer was
+            # off or hibernating) so updates are never silently skipped.
             $weeklyTrigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
+            $startupTrigger  = New-ScheduledTaskTrigger -AtStartup
+            $startupTrigger.Delay = "PT5M"   # 5-minute delay lets the system fully boot first
             $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable $true
             $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
             Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `
-                -Trigger $weeklyTrigger -Settings $weeklySettings -Principal $weeklyPrincipal `
-                -Description "TaskMesh weekly auto-updater (runs as SYSTEM)" | Out-Null
-            Write-Host "Weekly update check task registered."
+                -Trigger @($weeklyTrigger, $startupTrigger) -Settings $weeklySettings -Principal $weeklyPrincipal `
+                -Description "TaskMesh auto-updater — weekly + startup catch-up (runs as SYSTEM)" | Out-Null
+            Write-Host "Auto-update task registered (weekly + startup trigger)."
         } catch {
             Write-Warning "Failed to register weekly update task: $_"
         }
     } else {
-        Write-Host "Auto-update disabled — weekly update task not registered."
+        Write-Host "Auto-update disabled — update task not registered."
     }
 }
 

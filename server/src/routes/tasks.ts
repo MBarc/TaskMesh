@@ -160,12 +160,17 @@ taskRoutes.delete('/:id', requireScope('tasks:write'), async (req, res) => {
   try {
     const { id } = req.params as Record<string, string>;
 
-    // Check if archive is enabled
-    const appSettings = await prisma.appSettings.findUnique({
-      where: { id: 'singleton' },
-    });
+    // Check if archive is enabled — isolated try/catch so a schema mismatch on
+    // AppSettings doesn't prevent the task from being deleted.
+    let archiveEnabled = false;
+    try {
+      const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+      archiveEnabled = appSettings?.archiveEnabled ?? false;
+    } catch {
+      // AppSettings unavailable (e.g. schema migration in progress) — skip archiving
+    }
 
-    if (appSettings?.archiveEnabled) {
+    if (archiveEnabled) {
       // Fetch task with board info, cellValues, and column metadata
       const task = await prisma.task.findUnique({
         where: { id },
