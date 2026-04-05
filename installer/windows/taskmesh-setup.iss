@@ -1144,18 +1144,21 @@ begin
     VbsPath     := ExpandConstant('{app}\scripts\launch-taskmesh.ps1');
     AppIconPath := ExpandConstant('{app}\taskmesh.ico');
 
-    // Desktop shortcut — created directly so it works regardless of wizard page state.
-    // WizardSelectTasks() is unreliable when wpSelectTasks is skipped.
-    if OptionsPage.Values[2] then begin
-      ShortcutPath := ExpandConstant('{commondesktop}\{#AppName}.lnk');
+    // Desktop shortcut — always recreated on repair/update so the target stays
+    // current (e.g. wscript.exe → ps-launcher.exe after upgrading).
+    // On a fresh install it is only created when the user opted in.
+    ShortcutPath := ExpandConstant('{commondesktop}\{#AppName}.lnk');
+    if OptionsPage.Values[2] or FileExists(ShortcutPath) then begin
       CreateShellLink(ShortcutPath, 'Launch {#AppName}',
         ExpandConstant('{app}\scripts\ps-launcher.exe'),
         '"' + VbsPath + '"',
         ExpandConstant('{app}'), AppIconPath, 0, SW_SHOWNORMAL);
     end;
 
-    // Startup on login
-    if OptionsPage.Values[1] then
+    // Startup on login — write if opted in, or refresh if an existing entry is
+    // already present (keeps the target current across repairs/updates).
+    if OptionsPage.Values[1] or
+       RegValueExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#AppName}') then
       RegWriteStringValue(HKCU,
         'Software\Microsoft\Windows\CurrentVersion\Run',
         '{#AppName}',

@@ -33,7 +33,9 @@ function Set-ServicePort([int]$NewPort) {
         $envVars += "PORT=$NewPort"
     }
     Set-ItemProperty $svcReg AppEnvironmentExtra $envVars -Type MultiString
+    $appUrl = if ($NewPort -eq 80) { "http://taskmesh.localhost" } else { "http://taskmesh.localhost:$NewPort" }
     Set-ItemProperty 'HKLM:\Software\TaskMesh' Port $NewPort.ToString()
+    Set-ItemProperty 'HKLM:\Software\TaskMesh' AppUrl $appUrl
 }
 
 # If port 80 was unavailable at install time (stored port > 1024), opportunistically
