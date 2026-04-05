@@ -1,4 +1,4 @@
-# TaskMesh Port Assurance
+﻿# TaskMesh Port Assurance
 # Called by start-taskmesh.bat before starting the server service.
 # If the configured port is free, does nothing.
 # If the port is taken, finds the next free port and updates both the
@@ -51,7 +51,7 @@ if ($storedPort -ne 80) {
     } catch {}
 
     if ($port80Free) {
-        Write-Host "[TaskMesh] Port 80 is now available — promoting from port $storedPort to port 80 (clean URL)." -ForegroundColor Green
+        Write-Host "[TaskMesh] Port 80 is now available -- promoting from port $storedPort to port 80 (clean URL)." -ForegroundColor Green
         Set-ServicePort -NewPort 80
         exit 0
     }
@@ -68,7 +68,7 @@ try {
 
 if ($portFree) { exit 0 }   # nothing to do
 
-# Port is taken — find the next free one.
+# Port is taken -- find the next free one.
 # If the stored port was privileged (e.g. 80), fall back to 4000+ rather than
 # searching 81, 82... which aren't useful for the taskmesh.localhost hostname.
 if ($storedPort -lt 1024) {
@@ -76,5 +76,5 @@ if ($storedPort -lt 1024) {
 } else {
     $newPort = Find-FreePort -Start ($storedPort + 1)
 }
-Write-Host "[TaskMesh] Port $storedPort is in use — switching to port $newPort." -ForegroundColor Yellow
+Write-Host "[TaskMesh] Port $storedPort is in use -- switching to port $newPort." -ForegroundColor Yellow
 Set-ServicePort -NewPort $newPort

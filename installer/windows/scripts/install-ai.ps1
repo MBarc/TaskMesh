@@ -1,4 +1,4 @@
-# TaskMesh AI Component Installer
+﻿# TaskMesh AI Component Installer
 # Downloads Ollama, registers it as a service, pulls the LLM model,
 # then installs the TaskMesh-AI service.
 #
@@ -108,7 +108,7 @@ if ($OllamaModel -eq "") {
         $OllamaModel = $r.Output.Trim()
         Write-Host "Hardware detection selected model: $OllamaModel"
     } else {
-        Write-Warning "detect-hardware.ps1 not found — using default: llama3.1:8b"
+        Write-Warning "detect-hardware.ps1 not found -- using default: llama3.1:8b"
         $OllamaModel = "llama3.1:8b"
     }
 } else {
@@ -141,7 +141,7 @@ foreach ($c in $candidates) {
 
 if (-not $ollamaExe) {
     Write-Host "Downloading Ollama for Windows..."
-    Write-Host "(This is approximately 500 MB — please wait)" -ForegroundColor Yellow
+    Write-Host "(This is approximately 500 MB -- please wait)" -ForegroundColor Yellow
     $ollamaSetup = Join-Path $env:TEMP "OllamaSetup.exe"
     Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" `
         -OutFile $ollamaSetup -UseBasicParsing -TimeoutSec 600
@@ -153,7 +153,7 @@ if (-not $ollamaExe) {
         if (Test-Path $c) { $ollamaExe = $c; break }
     }
     if (-not $ollamaExe) {
-        throw "Ollama installation failed — executable not found after install."
+        throw "Ollama installation failed -- executable not found after install."
     }
     Write-Host "Ollama installed." -ForegroundColor Green
 
@@ -163,7 +163,7 @@ if (-not $ollamaExe) {
     Set-ItemProperty -Path $tmReg -Name "InstalledOllama" -Value "1"
 } else {
     Write-Host "Ollama already installed at: $ollamaExe" -ForegroundColor Green
-    # Don't set InstalledOllama — we didn't install it, so we shouldn't remove it.
+    # Don't set InstalledOllama -- we didn't install it, so we shouldn't remove it.
 }
 
 # ── Step 2: Register Ollama as a Windows Service ─────────────────
@@ -207,7 +207,7 @@ for ($i = 0; $i -lt 30; $i++) {
 }
 
 if (-not $ready) {
-    Write-Warning "Ollama did not respond after 60 s — cannot pull model."
+    Write-Warning "Ollama did not respond after 60 s -- cannot pull model."
     Write-Warning "AI features will not be available. You can re-run AI setup from the TaskMesh settings panel once Ollama starts."
     exit 1
 }
@@ -218,7 +218,7 @@ $allTiers   = @("qwen2.5:32b", "qwen2.5:14b", "llama3.1:8b", "llama3.2:3b")
 $modelReady = $false
 
 Write-Step "Downloading AI language model: $OllamaModel"
-Write-Host "(This may be 2–20 GB depending on the model — please wait)" -ForegroundColor Yellow
+Write-Host "(This may be 2–20 GB depending on the model -- please wait)" -ForegroundColor Yellow
 Write-Host ""
 
 & $ollamaExe pull $OllamaModel
@@ -256,13 +256,13 @@ if ($LASTEXITCODE -eq 0) {
 Write-Step "Registering TaskMesh-AI service"
 
 if (-not $modelReady) {
-    Write-Warning "Skipping TaskMesh-AI service — model was not downloaded successfully."
+    Write-Warning "Skipping TaskMesh-AI service -- model was not downloaded successfully."
     Write-Warning "Re-run 'ollama pull $OllamaModel' then restart the TaskMesh-AI service to enable AI features."
 } else {
 
 $aiExe = Join-Path $AppDir "ai-service\ai-service.exe"
 if (-not (Test-Path $aiExe)) {
-    Write-Warning "AI service executable not found at $aiExe — skipping service registration."
+    Write-Warning "AI service executable not found at $aiExe -- skipping service registration."
 } else {
     $whisperModelDir = Join-Path $AppDir "ai-service\models"
     New-Item -ItemType Directory -Force -Path $whisperModelDir | Out-Null

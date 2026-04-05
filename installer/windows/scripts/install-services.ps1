@@ -1,4 +1,4 @@
-# TaskMesh Core Service Installer
+﻿# TaskMesh Core Service Installer
 # Registers TaskMesh-Server as a Windows Service via NSSM.
 # AI components are handled separately by install-ai.ps1.
 # Called by the Inno Setup [Run] section after file extraction.
@@ -153,8 +153,10 @@ if (Test-Path $encKeyFile) {
     $env_TASKMESH_ENCRYPTION_KEY = (Get-Content $encKeyFile -Raw).Trim()
     Write-Host "Loaded existing encryption key."
 } else {
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     $keyBytes = [byte[]]::new(32)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
+    $rng.GetBytes($keyBytes)
+    $rng.Dispose()
     $env_TASKMESH_ENCRYPTION_KEY = ($keyBytes | ForEach-Object { $_.ToString('x2') }) -join ''
     $env_TASKMESH_ENCRYPTION_KEY | Set-Content $encKeyFile -NoNewline -Encoding ASCII
     Write-Host "Generated new encryption key."
@@ -333,7 +335,7 @@ try {
 $updateScript = Join-Path $AppDir "updater\check-updates.ps1"
 if (Test-Path $updateScript) {
 
-    # TaskMesh-ApplyUpdate — on-demand trigger, ALWAYS registered.
+    # TaskMesh-ApplyUpdate -- on-demand trigger, ALWAYS registered.
     # Called by the Node.js server via schtasks /Run for manual in-app updates.
     # Must run as SYSTEM so the installer can overwrite files without UAC.
     try {
@@ -354,7 +356,7 @@ if (Test-Path $updateScript) {
         Write-Warning "Failed to register on-demand update task: $_"
     }
 
-    # TaskMeshUpdateCheck — weekly automatic check, only registered when auto-update is enabled.
+    # TaskMeshUpdateCheck -- weekly automatic check, only registered when auto-update is enabled.
     # The in-app settings toggle registers/unregisters this task at runtime via the server API.
     $weeklyName = "TaskMeshUpdateCheck"
     Unregister-ScheduledTask -TaskName $weeklyName -Confirm:$false -ErrorAction SilentlyContinue
@@ -370,18 +372,18 @@ if (Test-Path $updateScript) {
             $weeklyTrigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "09:00"
             $startupTrigger  = New-ScheduledTaskTrigger -AtStartup
             $startupTrigger.Delay = "PT5M"   # 5-minute delay lets the system fully boot first
-            $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable $true
+            $weeklySettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable
             $weeklyPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
             Register-ScheduledTask -TaskName $weeklyName -Action $weeklyAction `
                 -Trigger @($weeklyTrigger, $startupTrigger) -Settings $weeklySettings -Principal $weeklyPrincipal `
-                -Description "TaskMesh auto-updater — weekly + startup catch-up (runs as SYSTEM)" | Out-Null
+                -Description "TaskMesh auto-updater -- weekly + startup catch-up (runs as SYSTEM)" | Out-Null
             Write-Host "Auto-update task registered (weekly + startup trigger)."
         } catch {
             Write-Warning "Failed to register weekly update task: $_"
         }
     } else {
-        Write-Host "Auto-update disabled — update task not registered."
+        Write-Host "Auto-update disabled -- update task not registered."
     }
 }
 

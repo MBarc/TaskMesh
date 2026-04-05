@@ -1,4 +1,4 @@
-# TaskMesh Ollama Uninstaller
+﻿# TaskMesh Ollama Uninstaller
 # Locates the Ollama uninstaller via the Windows registry and runs it silently.
 # Only called when the user chose to remove Ollama during TaskMesh uninstall.
 
@@ -24,13 +24,13 @@ foreach ($hive in @("HKLM", "HKCU")) {
 }
 
 if (-not $uninstallStr) {
-    Write-Warning "Ollama uninstaller not found in registry — it may have already been removed."
+    Write-Warning "Ollama uninstaller not found in registry -- it may have already been removed."
     exit 0
 }
 
 Write-Host "Uninstalling Ollama..."
 
-# UninstallString may be quoted (e.g. "C:\path\unins000.exe") — parse the exe path
+# UninstallString may be quoted (e.g. "C:\path\unins000.exe") -- parse the exe path
 if ($uninstallStr -match '^"([^"]+)"') {
     $exe = $Matches[1]
 } else {

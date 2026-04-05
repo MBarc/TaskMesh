@@ -233,7 +233,7 @@ export async function enableAutoUpdate(): Promise<void> {
       `$startupTrigger = New-ScheduledTaskTrigger -AtStartup`,
       `$startupTrigger.Delay = 'PT5M'`,
       `$principal      = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest`,
-      `$settings       = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable $true`,
+      `$settings       = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable`,
       `Unregister-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Confirm:$false -ErrorAction SilentlyContinue`,
       `Register-ScheduledTask -TaskName 'TaskMeshUpdateCheck' -Action $action -Trigger @($weeklyTrigger, $startupTrigger) -Principal $principal -Settings $settings -Description 'TaskMesh auto-updater — weekly + startup catch-up' | Out-Null`,
       `Set-ItemProperty -Path 'HKLM:\\Software\\TaskMesh' -Name 'AutoUpdateEnabled' -Value '1' -ErrorAction SilentlyContinue`,

@@ -1,4 +1,4 @@
-# TaskMesh Service Uninstaller
+﻿# TaskMesh Service Uninstaller
 # Stops and removes all TaskMesh Windows Services and the update scheduled task.
 # Called by the Inno Setup [UninstallRun] section.
 
@@ -10,7 +10,7 @@ $ErrorActionPreference = "SilentlyContinue"
 $log = Join-Path $env:TEMP "taskmesh-uninstall.log"
 function Log { param([string]$msg) "$(Get-Date -f 'HH:mm:ss'): $msg" | Out-File $log -Append }
 
-# Resolve NSSM path — prefer the one passed via AppDir, fall back to registry
+# Resolve NSSM path -- prefer the one passed via AppDir, fall back to registry
 if (-not $AppDir) {
     $regPath = "HKLM:\Software\TaskMesh"
     if (Test-Path $regPath) {
@@ -91,7 +91,7 @@ if ($AppDir -and (Test-Path $AppDir)) {
 # All TaskMesh services were stopped above, so no other process holds files open.
 # We therefore attempt a direct delete first.  If that fails (e.g. stale handle
 # or attribute issue), we rename the directory into %TEMP% so it vanishes from
-# Program Files immediately — before the uninstaller shows "done" — and let
+# Program Files immediately -- before the uninstaller shows "done" -- and let
 # Windows TEMP cleanup or Inno's own self-deletion handle the remainder.
 if ($AppDir -and (Test-Path $AppDir)) {
     try {

@@ -1,4 +1,4 @@
-# TaskMesh silent launcher
+﻿# TaskMesh silent launcher
 # Starts TaskMesh services and opens the browser without showing a terminal window.
 # Called by ps-launcher.exe, so this script already runs with no console window.
 # Replaces the deprecated launch-taskmesh.vbs (wscript.exe / VBScript).

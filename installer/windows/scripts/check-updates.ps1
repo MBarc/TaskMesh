@@ -1,4 +1,4 @@
-# TaskMesh Auto-Updater
+﻿# TaskMesh Auto-Updater
 # Scheduled weekly via Task Scheduler, or triggered on-demand via schtasks /Run.
 # Checks the GitHub Releases API for a newer version and silently installs it.
 #
@@ -18,7 +18,7 @@ $installedVersion = $regProps.Version
 $installDir       = $regProps.InstallDir
 $dataDir          = $regProps.DataDir
 
-# ── File logging — uses Add-Content, which works in Session 0 / no-console hosts ──
+# ── File logging -- uses Add-Content, which works in Session 0 / no-console hosts ──
 # Start-Transcript requires a console host and silently fails when spawned from a
 # Windows service (Session 0). Add-Content always works.
 $_logDir  = if ($installDir) { Join-Path $installDir "logs" } else { "C:\Windows\Temp" }
@@ -41,7 +41,7 @@ function Write-Log {
 Write-Log "=== TaskMesh Updater started ==="
 
 # Ensure event source is registered (requires elevation once).
-# SourceExists() is a .NET call — wrap in try/catch so a stopped or inaccessible
+# SourceExists() is a .NET call -- wrap in try/catch so a stopped or inaccessible
 # Event Log service does not terminate the script.
 try {
     if (-not [System.Diagnostics.EventLog]::SourceExists("TaskMesh")) {
@@ -55,7 +55,7 @@ if (-not $installedVersion) {
 }
 
 # Respect the in-app auto-update toggle (stored in registry by install-services.ps1 / the settings API).
-# Value '0' means the user disabled auto-update from within the app — exit cleanly so the weekly
+# Value '0' means the user disabled auto-update from within the app -- exit cleanly so the weekly
 # scheduled task is a no-op until they re-enable it.
 # -Force bypasses this guard for on-demand updates triggered by the user via the UI.
 $autoUpdateEnabled = $regProps.AutoUpdateEnabled

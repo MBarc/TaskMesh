@@ -1,6 +1,6 @@
-# detect-hardware.ps1
+﻿# detect-hardware.ps1
 # Detects available RAM and GPU VRAM and outputs the best Ollama model for this machine.
-# Output: one line — the model tag (e.g. "llama3.1:8b") or "disabled".
+# Output: one line -- the model tag (e.g. "llama3.1:8b") or "disabled".
 #
 # Tier mapping:
 #   < 8 GB RAM              → disabled
@@ -11,7 +11,7 @@
 #
 # GPU VRAM takes priority over RAM when a GPU is present.
 # Falls back to RAM-only logic if GPU detection fails.
-# No external dependencies — uses only built-in Windows/PowerShell tooling.
+# No external dependencies -- uses only built-in Windows/PowerShell tooling.
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -24,7 +24,7 @@ $ramGB = if ($cs -and $cs.TotalPhysicalMemory) {
 # ── Detect GPU VRAM ───────────────────────────────────────────────────────────
 $vramGB = 0
 
-# Try nvidia-smi first — bundled with NVIDIA drivers, reports correct VRAM for
+# Try nvidia-smi first -- bundled with NVIDIA drivers, reports correct VRAM for
 # all card sizes (WMI caps at 4 GB due to UINT32 overflow on high-end cards).
 $nvSmiCmd = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
 if ($nvSmiCmd) {
@@ -37,7 +37,7 @@ if ($nvSmiCmd) {
     }
 }
 
-# Fall back to WMI — may cap at 4 GB for VRAM > 4 GB, but useful for low-end detection.
+# Fall back to WMI -- may cap at 4 GB for VRAM > 4 GB, but useful for low-end detection.
 if ($vramGB -eq 0) {
     $gpus = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
             Where-Object { $_.AdapterRAM -gt 0 }
