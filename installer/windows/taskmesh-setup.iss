@@ -1037,10 +1037,29 @@ begin
 end;
 
 // ── PrepareToInstall ──────────────────────────────────────────────────────────
+// Kill ps-launcher.exe and stop NSSM services before files are extracted so
+// the installer can replace locked executables without "access denied" errors.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  AppDir:     String;
+  NssmExe:   String;
+  ResultCode: Integer;
 begin
   Result := '';
   NeedsRestart := False;
+
+  // Kill the launcher process (holds ps-launcher.exe open when a shortcut was used)
+  Exec('taskkill.exe', '/F /IM ps-launcher.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Stop NSSM-managed services if NSSM is present from a previous install
+  AppDir  := RegGetStr(HKLM, 'Software\TaskMesh', 'AppDir');
+  if AppDir <> '' then begin
+    NssmExe := AppDir + '\nssm\nssm.exe';
+    if FileExists(NssmExe) then begin
+      Exec(NssmExe, 'stop TaskMesh-Server confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec(NssmExe, 'stop TaskMesh-AI    confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+  end;
 end;
 
 // ── Uninstall: ask about Ollama, then clean up extras ─────────────────────────
