@@ -31,6 +31,7 @@ import { ArchiveSettings } from './components/ArchiveSettings';
 import { LicenseSettings } from './components/LicenseSettings';
 import { PrivacySettings } from './components/PrivacySettings';
 import { UpdateSettings } from './components/UpdateSettings';
+import { UpdateCountdownModal } from './components/UpdateCountdownModal';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
 import { ArchiveBoard } from './components/ArchiveBoard';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
@@ -162,6 +163,11 @@ function App() {
   const importFileRef = useRef<HTMLInputElement>(null);
 
   const emailColumnEnabled = currentBoard?.columns.some(c => c.type === 'EMAIL') ?? false;
+
+  function navigateToSettings(page: string) {
+    setActiveTab('settings');
+    setActiveSettingsPage(page);
+  }
 
   async function handleExportSelected() {
     const ids = [...exportSelectedBoardIds];
@@ -443,7 +449,7 @@ function App() {
                 <Search className="w-3.5 h-3.5" />
                 <span className="text-xs">Search</span>
               </button>
-              <NotificationCenter />
+              <NotificationCenter onNavigate={navigateToSettings} />
               <ThemePicker />
             </div>
           </div>
@@ -1224,6 +1230,9 @@ function App() {
           onSuccess={refreshConnectors}
         />
       )}
+
+      {/* Update countdown warning modal */}
+      <UpdateCountdownModal onNavigateToUpdates={() => navigateToSettings('updates')} />
     </div>
   );
 }

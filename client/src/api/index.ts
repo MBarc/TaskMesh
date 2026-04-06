@@ -903,6 +903,12 @@ export interface UpdateStatus {
   releaseDate: string | null;
   checkedAt: string | null;
   autoUpdateEnabled: boolean;
+  stagedVersion: string | null;
+  scheduledApplyAt: string | null;
+  warningActive: boolean;
+  delayUsed: boolean;
+  scheduleDay: number;
+  scheduleHour: number;
 }
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {
@@ -915,6 +921,21 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
 
 export async function applyUpdate(): Promise<{ status: string; message: string }> {
   return fetchAPI<{ status: string; message: string }>('/api/updates/apply', { method: 'POST' });
+}
+
+export async function acknowledgeUpdate(): Promise<void> {
+  return fetchAPI<void>('/api/updates/acknowledge', { method: 'POST' });
+}
+
+export async function delayUpdate(): Promise<{ ok: boolean; scheduledApplyAt: string | null }> {
+  return fetchAPI<{ ok: boolean; scheduledApplyAt: string | null }>('/api/updates/delay', { method: 'POST' });
+}
+
+export async function updateSchedule(day: number, hour: number): Promise<{ ok: boolean; scheduledApplyAt: string | null }> {
+  return fetchAPI<{ ok: boolean; scheduledApplyAt: string | null }>('/api/updates/schedule', {
+    method: 'PATCH',
+    body: JSON.stringify({ day, hour }),
+  });
 }
 
 export async function getAppSettings(): Promise<AppSettings> {

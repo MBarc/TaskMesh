@@ -244,6 +244,12 @@ model AppSettings {
   installUUID          String?
   activeThemeId        String    @default("default-light")
   autoUpdateEnabled    Boolean   @default(true)
+  updateScheduleDay    Int       @default(0)    // 0=Sun, 1=Mon, ..., 6=Sat
+  updateScheduleHour   Int       @default(9)    // 0-23
+  updateStagedVersion  String?
+  updateStagedPath     String?
+  updateDelayUsed      Boolean   @default(false)
+  updateDelayedUntil   DateTime?
   lastSeenVersion      String?
   licenseKey           String?
   licenseTier          String?
@@ -293,6 +299,8 @@ model Notification {
   severity    String
   read        Boolean  @default(false)
   dismissed   Boolean  @default(false)
+  actionLabel String?
+  actionRoute String?
   createdAt   DateTime @default(now())
 }
 

@@ -95,32 +95,41 @@ if ($latest -le $installed) {
     exit 0
 }
 
-Write-Log "TaskMesh update available: $installedVersion -> $latestVersion. Downloading installer..." "Information" 5
+Write-Log "TaskMesh update available: $installedVersion -> $latestVersion." "Information" 5
 
-# ── Find the installer asset ─────────────────────────────────────────────────
-$asset = $response.assets | Where-Object { $_.name -eq "TaskMesh-Setup.exe" } | Select-Object -First 1
+# ── Check for a pre-staged installer (downloaded by the server in the background) ──
+$tempDir    = [System.IO.Path]::GetTempPath()
+$stagedDir  = Join-Path $tempDir "taskmesh-staged"
+$stagedFile = Join-Path $stagedDir "TaskMesh-Setup-$latestVersion.exe"
+$skipCleanup = $false
 
-if (-not $asset) {
-    Write-Log "TaskMesh update check: no TaskMesh-Setup.exe asset found in release $latestTag." "Warning" 6
-    exit 1
+if (Test-Path $stagedFile) {
+    Write-Log "Using pre-staged installer at $stagedFile" "Information" 5
+    $installerPath = $stagedFile
+    $skipCleanup   = $true
+} else {
+    # ── Find the installer asset ─────────────────────────────────────────────────
+    $asset = $response.assets | Where-Object { $_.name -eq "TaskMesh-Setup.exe" } | Select-Object -First 1
+
+    if (-not $asset) {
+        Write-Log "TaskMesh update check: no TaskMesh-Setup.exe asset found in release $latestTag." "Warning" 6
+        exit 1
+    }
+
+    $downloadUrl   = $asset.browser_download_url
+    $installerPath = Join-Path $tempDir "TaskMesh-Setup-$latestVersion.exe"
+
+    Write-Log "Downloading $downloadUrl to $installerPath..."
+
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Log "TaskMesh update check: download failed. $_" "Error" 7
+        exit 1
+    }
 }
 
-$downloadUrl = $asset.browser_download_url
-
-# ── Download to a temp file ───────────────────────────────────────────────────
-$tempDir       = [System.IO.Path]::GetTempPath()
-$installerPath = Join-Path $tempDir "TaskMesh-Setup-$latestVersion.exe"
-
-Write-Log "Downloading $downloadUrl to $installerPath..."
-
-try {
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
-} catch {
-    Write-Log "TaskMesh update check: download failed. $_" "Error" 7
-    exit 1
-}
-
-Write-Log "Download complete. Stopping TaskMesh-Server before install..." "Information" 8
+Write-Log "Download ready. Stopping TaskMesh-Server before install..." "Information" 8
 
 # ── Stop the TaskMesh service before running the installer ────────────────────
 # The service must be stopped here (before the installer launches) so that
@@ -167,8 +176,10 @@ try {
     exit 1
 }
 
-# Clean up temp file
-Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+# Clean up temp file (skip if it was a pre-staged file — the server manages that path)
+if (-not $skipCleanup) {
+    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+}
 
 Write-Log "Installer exited with code $exitCode." "Information" 10
 

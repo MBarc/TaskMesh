@@ -375,6 +375,8 @@ export interface Notification {
   severity: NotificationSeverity;
   read: boolean;
   dismissed: boolean;
+  actionLabel?: string | null;
+  actionRoute?: string | null;
   createdAt: string;
 }
 

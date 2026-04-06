@@ -46,7 +46,15 @@ const SEVERITY_CONFIG: Record<NotificationSeverity, {
   error: { Icon: AlertCircle, iconClass: 'text-red-500', bgClass: 'bg-red-500/10' },
 };
 
-function NotificationItem({ n, onDismiss }: { n: Notification; onDismiss: () => void }) {
+function NotificationItem({
+  n,
+  onDismiss,
+  onNavigate,
+}: {
+  n: Notification;
+  onDismiss: () => void;
+  onNavigate?: (route: string) => void;
+}) {
   const config = SEVERITY_CONFIG[n.severity] ?? SEVERITY_CONFIG.info;
   const { Icon, iconClass, bgClass } = config;
 
@@ -60,6 +68,14 @@ function NotificationItem({ n, onDismiss }: { n: Notification; onDismiss: () => 
         <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
           {renderMessage(n.message)}
         </p>
+        {n.actionLabel && n.actionRoute && onNavigate && (
+          <button
+            onClick={() => onNavigate(n.actionRoute!)}
+            className="mt-2 px-2.5 py-1 text-xs font-medium bg-primary-500 hover:bg-primary-600 text-white rounded transition-colors"
+          >
+            {n.actionLabel}
+          </button>
+        )}
         <p className="text-xs text-text-muted mt-1">{relativeTime(n.createdAt)}</p>
       </div>
       <button
@@ -73,7 +89,11 @@ function NotificationItem({ n, onDismiss }: { n: Notification; onDismiss: () => 
   );
 }
 
-export function NotificationCenter() {
+interface NotificationCenterProps {
+  onNavigate?: (route: string) => void;
+}
+
+export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const prevOpenRef = useRef(false);
@@ -118,6 +138,11 @@ export function NotificationCenter() {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
+  function handleActionNavigate(route: string) {
+    setOpen(false);
+    onNavigate?.(route);
+  }
+
   return (
     <div className="relative">
       <button
@@ -161,7 +186,12 @@ export function NotificationCenter() {
               </div>
             ) : (
               notifications.map((n) => (
-                <NotificationItem key={n.id} n={n} onDismiss={() => dismiss(n.id)} />
+                <NotificationItem
+                  key={n.id}
+                  n={n}
+                  onDismiss={() => dismiss(n.id)}
+                  onNavigate={handleActionNavigate}
+                />
               ))
             )}
           </div>

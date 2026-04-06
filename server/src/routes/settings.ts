@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { capture } from '../lib/telemetry.js';
-import { enableAutoUpdate, disableAutoUpdate } from '../lib/updateChecker.js';
+import { enableAutoUpdate, disableAutoUpdate, rescheduleFromDB } from '../lib/updateChecker.js';
 
 export const settingsRoutes = Router();
 
@@ -59,13 +59,15 @@ settingsRoutes.get('/', async (_req, res) => {
  */
 settingsRoutes.patch('/', async (req, res) => {
   try {
-    const { telemetryEnabled, archiveEnabled, archiveRetentionDays, autoUpdateEnabled } = req.body as Record<string, unknown>;
+    const { telemetryEnabled, archiveEnabled, archiveRetentionDays, autoUpdateEnabled, updateScheduleDay, updateScheduleHour } = req.body as Record<string, unknown>;
     const data: Record<string, unknown> = {};
 
     if (typeof telemetryEnabled === 'boolean') data.telemetryEnabled = telemetryEnabled;
     if (typeof archiveEnabled === 'boolean') data.archiveEnabled = archiveEnabled;
     if (typeof archiveRetentionDays === 'number') data.archiveRetentionDays = archiveRetentionDays;
     if (typeof autoUpdateEnabled === 'boolean') data.autoUpdateEnabled = autoUpdateEnabled;
+    if (typeof updateScheduleDay === 'number' && updateScheduleDay >= 0 && updateScheduleDay <= 6) data.updateScheduleDay = updateScheduleDay;
+    if (typeof updateScheduleHour === 'number' && updateScheduleHour >= 0 && updateScheduleHour <= 23) data.updateScheduleHour = updateScheduleHour;
     const { activeThemeId } = req.body as Record<string, unknown>;
     if (typeof activeThemeId === 'string' && activeThemeId.trim()) data.activeThemeId = activeThemeId.trim();
 
@@ -82,11 +84,26 @@ settingsRoutes.patch('/', async (req, res) => {
     // Sync the scheduled task / cron entry with the new auto-update preference.
     if (typeof autoUpdateEnabled === 'boolean') {
       try {
-        if (autoUpdateEnabled) await enableAutoUpdate();
-        else await disableAutoUpdate();
+        if (autoUpdateEnabled) {
+          await enableAutoUpdate(settings.updateScheduleDay, settings.updateScheduleHour);
+        } else {
+          await disableAutoUpdate();
+        }
       } catch (err) {
         console.error('[autoUpdate] toggle failed (DB already updated):', err);
       }
+    }
+
+    // If schedule changed but auto-update is still on, re-register the OS task and timers.
+    if ((typeof updateScheduleDay === 'number' || typeof updateScheduleHour === 'number') && typeof autoUpdateEnabled === 'undefined') {
+      if (settings.autoUpdateEnabled) {
+        try {
+          await enableAutoUpdate(settings.updateScheduleDay, settings.updateScheduleHour);
+        } catch (err) {
+          console.error('[autoUpdate] schedule re-registration failed:', err);
+        }
+      }
+      await rescheduleFromDB();
     }
 
     res.json(settings);

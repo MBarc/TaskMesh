@@ -85,16 +85,27 @@ if [[ -z "${ASSET_URL}" ]]; then
   exit 0
 fi
 
-# ── Download ──────────────────────────────────────────────────────────────────
+# ── Check for a pre-staged archive (downloaded by the server in the background) ──
 
-TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
-ARCHIVE="${TMP_DIR}/TaskMesh-Installer.tar.gz"
+STAGED_FILE="/tmp/taskmesh-staged/TaskMesh-Installer-${LATEST_VERSION}.tar.gz"
+SKIP_CLEANUP=false
 
-logger -t taskmesh-update "Downloading TaskMesh ${LATEST_VERSION} from ${ASSET_URL}"
+if [[ -f "${STAGED_FILE}" ]]; then
+  logger -t taskmesh-update "Using pre-staged archive at ${STAGED_FILE}"
+  TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
+  ARCHIVE="${STAGED_FILE}"
+  SKIP_CLEANUP=true
+else
+  # ── Download ──────────────────────────────────────────────────────────────────
+  TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
+  ARCHIVE="${TMP_DIR}/TaskMesh-Installer.tar.gz"
 
-if ! curl -fsSL --max-time 300 -o "${ARCHIVE}" "${ASSET_URL}" 2>/dev/null; then
-  logger -t taskmesh-update "Download failed — will retry next scheduled run."
-  exit 0
+  logger -t taskmesh-update "Downloading TaskMesh ${LATEST_VERSION} from ${ASSET_URL}"
+
+  if ! curl -fsSL --max-time 300 -o "${ARCHIVE}" "${ASSET_URL}" 2>/dev/null; then
+    logger -t taskmesh-update "Download failed — will retry next scheduled run."
+    exit 0
+  fi
 fi
 
 # ── Extract ───────────────────────────────────────────────────────────────────

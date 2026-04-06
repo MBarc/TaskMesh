@@ -13,7 +13,7 @@ archiveRoutes.get('/settings', async (_req, res) => {
     });
 
     if (!settings) {
-      settings = { id: 'singleton', archiveEnabled: false, archiveRetentionDays: 30, telemetryEnabled: false, installUUID: null, activeThemeId: 'default-light', autoUpdateEnabled: false, lastSeenVersion: null, licenseKey: null, licenseTier: null, licenseExpiresAt: null, licenseActivatedAt: null, machineId: null, lastValidatedAt: null, createdAt: new Date(), updatedAt: new Date() };
+      settings = { id: 'singleton', archiveEnabled: false, archiveRetentionDays: 30, telemetryEnabled: false, installUUID: null, activeThemeId: 'default-light', autoUpdateEnabled: false, updateScheduleDay: 0, updateScheduleHour: 9, updateStagedVersion: null, updateStagedPath: null, updateDelayUsed: false, updateDelayedUntil: null, lastSeenVersion: null, licenseKey: null, licenseTier: null, licenseExpiresAt: null, licenseActivatedAt: null, machineId: null, lastValidatedAt: null, createdAt: new Date(), updatedAt: new Date() };
     }
 
     res.json({

@@ -1,8 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, AlertCircle, RefreshCw, Download } from 'lucide-react';
+import { CheckCircle, AlertCircle, RefreshCw, Download, Clock, Calendar } from 'lucide-react';
 import * as api from '../api';
 
 type ApplyState = 'idle' | 'applying' | 'waiting' | 'done';
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function formatHour(h: number): string {
+  if (h === 0) return '12:00 AM';
+  if (h < 12) return `${h}:00 AM`;
+  if (h === 12) return '12:00 PM';
+  return `${h - 12}:00 PM`;
+}
+
+function formatScheduledTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 export function UpdateSettings() {
   const [status, setStatus] = useState<api.UpdateStatus | null>(null);
@@ -13,10 +32,20 @@ export function UpdateSettings() {
   const [progress, setProgress] = useState(0);
   const [serverDown, setServerDown] = useState(false);
   const [error, setError] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleDay, setScheduleDay] = useState(0);
+  const [scheduleHour, setScheduleHour] = useState(9);
+  const [scheduleSaved, setScheduleSaved] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    api.getUpdateStatus().then(setStatus).catch(() => setError(true));
+    api.getUpdateStatus()
+      .then(s => {
+        setStatus(s);
+        setScheduleDay(s.scheduleDay ?? 0);
+        setScheduleHour(s.scheduleHour ?? 9);
+      })
+      .catch(() => setError(true));
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
@@ -30,7 +59,7 @@ export function UpdateSettings() {
     }
   }
 
-  async function handleDownloadNow() {
+  async function handleApplyNow() {
     setApplyError(null);
     setApplyState('applying');
     setProgress(0);
@@ -44,17 +73,12 @@ export function UpdateSettings() {
       return;
     }
 
-    // Wait for the server to go DOWN then come back UP.
-    // Progress advances continuously using an asymptotic formula so it never
-    // gets stuck at an arbitrary cap — it just slows down as it approaches 90%.
     setApplyState('waiting');
     let serverWentDown = false;
     let attempts = 0;
 
     pollRef.current = setInterval(async () => {
       attempts++;
-      // Each tick: add 4% of the remaining distance to 90% (min 0.3% so it
-      // never fully stops) — this naturally decelerates without a hard cap.
       setProgress(prev => {
         if (prev >= 90) return prev;
         return Math.min(99, prev + Math.max(0.3, (99 - prev) * 0.04));
@@ -63,23 +87,18 @@ export function UpdateSettings() {
       try {
         const res = await fetch('/health');
         if (res.ok && serverWentDown) {
-          // Server came back up after going down — restart completed
           clearInterval(pollRef.current!);
           setProgress(100);
           setApplyState('done');
           setTimeout(() => window.location.reload(), 1500);
         }
-        // If server is still up but hasn't gone down yet, download is in progress.
       } catch {
-        // Server is offline — installer is running
         if (!serverWentDown) {
           serverWentDown = true;
           setServerDown(true);
-          // Jump to at least 50% so the bar reflects real install progress
           setProgress(prev => Math.max(prev, 50));
         }
         if (attempts > 150) {
-          // ~5 minutes total
           clearInterval(pollRef.current!);
           setApplyError('Server did not restart in time. Please refresh the page manually.');
           setApplyState('idle');
@@ -102,6 +121,24 @@ export function UpdateSettings() {
     }
   }
 
+  async function saveSchedule() {
+    setScheduleSaving(true);
+    setScheduleSaved(false);
+    try {
+      const result = await api.updateSchedule(scheduleDay, scheduleHour);
+      setStatus(prev => prev ? {
+        ...prev,
+        scheduleDay,
+        scheduleHour,
+        scheduledApplyAt: result.scheduledApplyAt,
+      } : prev);
+      setScheduleSaved(true);
+      setTimeout(() => setScheduleSaved(false), 2000);
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="bg-surface-secondary rounded-lg p-4 border border-border">
@@ -119,6 +156,8 @@ export function UpdateSettings() {
     : null;
 
   const isApplying = applyState === 'applying' || applyState === 'waiting' || applyState === 'done';
+
+  const scheduleChanged = scheduleDay !== (status.scheduleDay ?? 0) || scheduleHour !== (status.scheduleHour ?? 9);
 
   return (
     <div className="space-y-4">
@@ -146,7 +185,6 @@ export function UpdateSettings() {
               </p>
             </div>
           </div>
-          {/* Progress bar */}
           <div className={`w-full rounded-full h-1.5 overflow-hidden ${serverDown ? 'bg-amber-500/20' : 'bg-primary-500/20'}`}>
             <div
               className={`h-full rounded-full transition-all duration-700 ease-out ${serverDown ? 'bg-amber-500' : 'bg-primary-500'}`}
@@ -173,6 +211,22 @@ export function UpdateSettings() {
           </div>
         )}
 
+        {/* Staged / ready-to-apply status */}
+        {status.stagedVersion && (
+          <div className="flex items-center gap-2 text-sm pt-1 pb-0.5">
+            <Download className="w-3.5 h-3.5 text-green-500 shrink-0" />
+            <span className="text-green-500">v{status.stagedVersion} downloaded and ready to apply</span>
+          </div>
+        )}
+
+        {/* Scheduled apply time */}
+        {status.scheduledApplyAt && status.stagedVersion && (
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <Clock className="w-3 h-3 shrink-0" />
+            <span>Scheduled to apply {formatScheduledTime(status.scheduledApplyAt)}</span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2 pt-1">
           <div className="flex items-center gap-2">
             {status.updateAvailable ? (
@@ -188,14 +242,14 @@ export function UpdateSettings() {
             )}
           </div>
 
-          {status.updateAvailable && !isApplying && (
+          {(status.stagedVersion || status.updateAvailable) && !isApplying && (
             <button
               type="button"
-              onClick={handleDownloadNow}
+              onClick={handleApplyNow}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary-500 hover:bg-primary-600 text-white rounded-md transition-colors"
             >
               <Download className="w-3 h-3" />
-              Download now
+              {status.stagedVersion ? 'Apply now' : 'Download & apply'}
             </button>
           )}
         </div>
@@ -229,8 +283,7 @@ export function UpdateSettings() {
       <div className="bg-surface-secondary rounded-lg p-4 border border-border">
         <h3 className="text-sm font-medium text-text-primary mb-1">Automatic Updates</h3>
         <p className="text-xs text-text-muted mb-4">
-          When enabled, TaskMesh will automatically download and install new releases in the background.
-          A weekly scheduled task handles the update — no action needed on your part.
+          When enabled, TaskMesh will silently download new releases in the background and apply them at your scheduled time.
         </p>
         <div className="flex items-center justify-between">
           <span className="text-sm text-text-secondary">Automatically install updates</span>
@@ -251,6 +304,70 @@ export function UpdateSettings() {
             />
           </button>
         </div>
+      </div>
+
+      {/* Update schedule */}
+      <div className="bg-surface-secondary rounded-lg p-4 border border-border space-y-3">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-text-muted" />
+          <h3 className="text-sm font-medium text-text-primary">Update Schedule</h3>
+        </div>
+
+        {status.autoUpdateEnabled ? (
+          <>
+            <p className="text-xs text-text-muted">
+              Choose when TaskMesh should automatically apply downloaded updates. You'll get a 5-minute heads-up before the restart.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="text-xs text-text-muted block mb-1">Day</label>
+                <select
+                  value={scheduleDay}
+                  onChange={e => setScheduleDay(Number(e.target.value))}
+                  className="w-full text-sm bg-surface border border-border rounded-md px-2.5 py-1.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-primary-500"
+                >
+                  {DAYS.map((d, i) => (
+                    <option key={d} value={i}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-text-muted block mb-1">Time</label>
+                <select
+                  value={scheduleHour}
+                  onChange={e => setScheduleHour(Number(e.target.value))}
+                  className="w-full text-sm bg-surface border border-border rounded-md px-2.5 py-1.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-primary-500"
+                >
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <option key={i} value={i}>{formatHour(i)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end pb-0.5">
+                <button
+                  type="button"
+                  onClick={saveSchedule}
+                  disabled={scheduleSaving || !scheduleChanged}
+                  className="px-3 py-1.5 text-xs font-medium bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-md transition-colors"
+                >
+                  {scheduleSaving ? 'Saving…' : scheduleSaved ? 'Saved' : 'Save'}
+                </button>
+              </div>
+            </div>
+
+            {status.scheduledApplyAt && status.stagedVersion && (
+              <p className="text-xs text-text-muted flex items-center gap-1.5">
+                <Clock className="w-3 h-3 shrink-0" />
+                Next update: {formatScheduledTime(status.scheduledApplyAt)}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-text-muted">
+            Enable automatic updates above to configure your preferred day and time.
+          </p>
+        )}
       </div>
     </div>
   );
