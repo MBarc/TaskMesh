@@ -1183,6 +1183,17 @@ begin
         '{#AppName}',
         '"' + ExpandConstant('{app}\scripts\ps-launcher.exe') + '" "' + VbsPath + '"');
 
+    // Record which components were installed so the silent updater can re-use
+    // them exactly and not accidentally install components (e.g. AI/Ollama)
+    // the user never selected.
+    begin
+      var Components: String;
+      Components := 'core';
+      if IsComponentSelected('sdk') then Components := Components + ',sdk';
+      if IsComponentSelected('ai')  then Components := Components + ',ai';
+      RegWriteStringValue(HKLM, 'Software\{#AppName}', 'InstalledComponents', Components);
+    end;
+
     // Store telemetry preference and a unique InstallID in the registry so the
     // uninstaller can fire a PostHog event even after the app is removed.
     RegWriteStringValue(HKLM, 'Software\{#AppName}', 'TelemetryEnabled', GetTelemetryEnabled(''));
