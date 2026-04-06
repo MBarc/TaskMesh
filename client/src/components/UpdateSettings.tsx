@@ -79,10 +79,8 @@ export function UpdateSettings() {
 
     pollRef.current = setInterval(async () => {
       attempts++;
-      setProgress(prev => {
-        if (prev >= 90) return prev;
-        return Math.min(99, prev + Math.max(0.3, (99 - prev) * 0.04));
-      });
+      // Asymptotic progress toward 99% — slows naturally, never freezes
+      setProgress(prev => Math.min(99, prev + Math.max(0.1, (99 - prev) * 0.03)));
 
       try {
         const res = await fetch('/health');
@@ -98,7 +96,7 @@ export function UpdateSettings() {
           setServerDown(true);
           setProgress(prev => Math.max(prev, 50));
         }
-        if (attempts > 150) {
+        if (attempts > 450) {
           clearInterval(pollRef.current!);
           setApplyError('Server did not restart in time. Please refresh the page manually.');
           setApplyState('idle');
@@ -179,7 +177,7 @@ export function UpdateSettings() {
               </p>
               <p className="text-xs text-text-muted mt-0.5">
                 {applyState === 'applying' && 'Contacting update server.'}
-                {applyState === 'waiting' && !serverDown && 'Fetching the latest release from GitHub.'}
+                {applyState === 'waiting' && !serverDown && 'Downloading the installer from GitHub — this can take a few minutes depending on your connection. Keep this tab open.'}
                 {applyState === 'waiting' && serverDown && 'The installer is running and TaskMesh is restarting. Your browser may show "Unable to connect" — ignore it and do not close this tab. The page will reload automatically.'}
                 {applyState === 'done' && 'Almost there…'}
               </p>
