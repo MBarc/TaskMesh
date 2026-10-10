@@ -27,6 +27,17 @@ function validateManifest(obj: Record<string, unknown>): string | null {
 export const connectorImportRouter = Router();
 
 connectorImportRouter.post('/', async (req, res) => {
+  // Uploading a connector compiles and runs its code inside the server process,
+  // which on installed copies is a SYSTEM service. The API has no login, so any
+  // local program could use this to run code as SYSTEM. It is therefore off unless
+  // explicitly enabled (connector development); installing a connector otherwise
+  // means an administrator copying its folder into connectorsDir and restarting.
+  if (process.env.TASKMESH_ALLOW_CONNECTOR_UPLOAD !== '1') {
+    return res.status(403).json({
+      error: `Uploading connectors from the app is disabled for security. To install one, copy its folder (manifest.json + handlers.js) into ${connectorsDir} as an administrator and restart TaskMesh. Connector developers can set TASKMESH_ALLOW_CONNECTOR_UPLOAD=1.`,
+    });
+  }
+
   const { manifestJson, handlerCode } = req.body as {
     manifestJson?: string;
     handlerCode?: string;
