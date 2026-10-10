@@ -203,8 +203,7 @@ function App() {
 
   const fetchEmailQueueCount = useCallback(async () => {
     try {
-      const queue = await api.getEmailQueue();
-      setEmailQueueCount(queue.length);
+      setEmailQueueCount(await api.getEmailQueueCount());
     } catch {
       // Silently ignore - queue count is non-critical
     }
@@ -216,12 +215,6 @@ function App() {
     const interval = setInterval(fetchEmailQueueCount, 30_000);
     return () => clearInterval(interval);
   }, [emailColumnEnabled, emailImportModal, fetchEmailQueueCount]);
-
-  useEffect(() => {
-    if (!emailImportModal && emailColumnEnabled) {
-      fetchEmailQueueCount();
-    }
-  }, [emailImportModal, emailColumnEnabled, fetchEmailQueueCount]);
 
   useEffect(() => {
     localStorage.setItem('taskmesh_activeTab', activeTab);
