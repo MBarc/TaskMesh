@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Search, Sparkles } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -27,7 +28,7 @@ const ADO_TYPE_COLORS: Record<string, string> = {
 };
 
 export function AdoPushModal() {
-  const { adoPushModal, closeAdoPushModal } = useBoardStore();
+  const { adoPushModal, closeAdoPushModal } = useBoardStore(useShallow(({ adoPushModal, closeAdoPushModal }) => ({ adoPushModal, closeAdoPushModal })));
   const [workItemType, setWorkItemType] = useState<AdoWorkItemType | ''>('');
   const [parentSearch, setParentSearch] = useState('');
   const [parentResults, setParentResults] = useState<AdoWorkItemSearchResult[]>([]);
@@ -208,41 +209,46 @@ export function AdoPushModal() {
 
       const raw = result.content.trim();
 
-      switch (fieldName) {
-        case 'priority': {
-          const digitMatch = raw.match(/[1-4]/);
-          const parsed = digitMatch ? parseInt(digitMatch[0], 10) : NaN;
-          setPriority(parsed >= 1 && parsed <= 4 ? parsed : null);
-          break;
-        }
-        case 'effort': {
-          const numMatch = raw.match(/[\d.]+/);
-          const num = numMatch ? parseFloat(numMatch[0]) : NaN;
-          setEffort(isNaN(num) ? '' : String(num));
-          break;
-        }
-        case 'severity': {
-          const known = ['1 - Critical', '2 - High', '3 - Medium', '4 - Low'];
-          const match = known.find((k) => raw.includes(k));
-          setSeverity(match || '');
-          break;
-        }
-        case 'tags': {
-          const newTags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-          setTags((prev) => {
-            const combined = [...prev];
-            for (const t of newTags) {
-              if (!combined.includes(t)) combined.push(t);
-            }
-            return combined;
-          });
-          break;
-        }
-      }
+      applyMetadata(fieldName, raw);
     } catch (err: any) {
       setError(err.message || 'Failed to generate field content');
     } finally {
       setGeneratingMetadata(null);
+    }
+  };
+
+  // Parse a generated metadata value into its form field (shared by single and generate-all).
+  const applyMetadata = (fieldName: AdoMetadataFieldName, raw: string) => {
+    switch (fieldName) {
+      case 'priority': {
+        const digitMatch = raw.match(/[1-4]/);
+        const parsed = digitMatch ? parseInt(digitMatch[0], 10) : NaN;
+        setPriority(parsed >= 1 && parsed <= 4 ? parsed : null);
+        break;
+      }
+      case 'effort': {
+        const numMatch = raw.match(/[\d.]+/);
+        const num = numMatch ? parseFloat(numMatch[0]) : NaN;
+        setEffort(isNaN(num) ? '' : String(num));
+        break;
+      }
+      case 'severity': {
+        const known = ['1 - Critical', '2 - High', '3 - Medium', '4 - Low'];
+        const match = known.find((k) => raw.includes(k));
+        setSeverity(match || '');
+        break;
+      }
+      case 'tags': {
+        const newTags = raw.split(',').map((t) => t.trim()).filter(Boolean);
+        setTags((prev) => {
+          const combined = [...prev];
+          for (const t of newTags) {
+            if (!combined.includes(t)) combined.push(t);
+          }
+          return combined;
+        });
+        break;
+      }
     }
   };
 
@@ -287,37 +293,7 @@ export function AdoPushModal() {
         if (job.type === 'richText') {
           setFieldValues((prev) => ({ ...prev, [job.fieldName]: result.content }));
         } else {
-          switch (job.fieldName) {
-            case 'priority': {
-              const digitMatch = raw.match(/[1-4]/);
-              const parsed = digitMatch ? parseInt(digitMatch[0], 10) : NaN;
-              setPriority(parsed >= 1 && parsed <= 4 ? parsed : null);
-              break;
-            }
-            case 'effort': {
-              const numMatch = raw.match(/[\d.]+/);
-              const num = numMatch ? parseFloat(numMatch[0]) : NaN;
-              setEffort(isNaN(num) ? '' : String(num));
-              break;
-            }
-            case 'severity': {
-              const known = ['1 - Critical', '2 - High', '3 - Medium', '4 - Low'];
-              const match = known.find((k) => raw.includes(k));
-              setSeverity(match || '');
-              break;
-            }
-            case 'tags': {
-              const newTags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-              setTags((prev) => {
-                const combined = [...prev];
-                for (const t of newTags) {
-                  if (!combined.includes(t)) combined.push(t);
-                }
-                return combined;
-              });
-              break;
-            }
-          }
+          applyMetadata(job.fieldName, raw);
         }
       } catch {
         failures++;

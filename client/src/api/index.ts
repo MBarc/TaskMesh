@@ -1,28 +1,7 @@
 import type { Board, Column, Task, ColumnType, ExtractedTask, AIExtraction, Platform, AdoSettings, AdoWorkItemType, AdoWorkItemSearchResult, AdoTemplatesConfig, AdoMetadataTemplatesConfig, SnowSettings, SnowIncidentSearchResult, EmailSettings, EmailQueueItem, EmailThreadMessage, EmailProvider, ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyHistoryResponse, DocumentationSettings, DocumentDraft, DocumentationTemplate, ArchiveSettings, ArchiveTasksResponse, TranscriptionJob, Notification, DocTree, DocFolder, DocFile } from '../types';
 import type { ThemeDefinition } from '../themes/themeDefinitions';
 
-const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
-
-async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
-}
+import { API_URL, fetchAPI } from './http';
 
 // Board API
 export async function getBoards(): Promise<Board[]> {
@@ -479,6 +458,10 @@ export async function testEmailConnection(): Promise<{ success: boolean; message
 
 export async function getEmailQueue(): Promise<EmailQueueItem[]> {
   return fetchAPI<EmailQueueItem[]>('/api/email/queue');
+}
+
+export async function getEmailQueueCount(): Promise<number> {
+  return (await fetchAPI<{ count: number }>('/api/email/queue/count')).count;
 }
 
 export async function refreshEmailQueue(): Promise<{ fetched: number }> {

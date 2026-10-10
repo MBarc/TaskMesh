@@ -4,7 +4,7 @@ import AdmZip from 'adm-zip';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma.js';
 import { capture } from '../lib/telemetry.js';
-import type { ColumnType } from '@prisma/client';
+import type { ColumnType, Prisma } from '@prisma/client';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
@@ -105,6 +105,25 @@ function resolveImportName(existingNames: Set<string>, baseName: string): string
   return candidate;
 }
 
+// Each import builds every record in memory, then writes them in one transaction:
+// a handful of createMany calls instead of one query per task and per cell, and a
+// failed import leaves no half-built board behind.
+async function writeBoard(
+  board: { id: string; name: string },
+  columns: Prisma.ColumnCreateManyInput[],
+  options: Prisma.ColumnOptionCreateManyInput[],
+  tasks: Prisma.TaskCreateManyInput[],
+  cells: Prisma.CellValueCreateManyInput[]
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.board.create({ data: board }),
+    prisma.column.createMany({ data: columns }),
+    prisma.columnOption.createMany({ data: options }),
+    prisma.task.createMany({ data: tasks }),
+    prisma.cellValue.createMany({ data: cells }),
+  ]);
+}
+
 async function importNewJson(
   data: SingleBoardExport,
   existingNames: Set<string>
@@ -114,59 +133,45 @@ async function importNewJson(
   const importName = resolveImportName(existingNames, board.name);
   existingNames.add(importName);
 
-  const newBoardId = uuidv4();
-  const columnIdMap = new Map<string, string>(); // old col id → new col id
-  const optionIdMap = new Map<string, string>();  // old opt id → new opt id
-  for (const col of board.columns) {
-    columnIdMap.set(col.id, uuidv4());
-  }
-
-  await prisma.board.create({ data: { id: newBoardId, name: importName } });
+  const boardId = uuidv4();
+  const colById = new Map<string, { newId: string; type: ColumnType }>(); // old col id → new
+  const optionIdMap = new Map<string, string>(); // old opt id → new opt id
+  const columns: Prisma.ColumnCreateManyInput[] = [];
+  const options: Prisma.ColumnOptionCreateManyInput[] = [];
 
   for (const col of board.columns) {
-    const newColId = columnIdMap.get(col.id)!;
-    await prisma.column.create({
-      data: {
-        id: newColId,
-        boardId: newBoardId,
-        name: col.name,
-        type: col.type,
-        order: col.order,
-        requiredForCompletion: col.requiredForCompletion ?? false,
-        alignment: col.alignment ?? 'auto',
-      },
+    const newColId = uuidv4();
+    colById.set(col.id, { newId: newColId, type: col.type });
+    columns.push({
+      id: newColId,
+      boardId,
+      name: col.name,
+      type: col.type,
+      order: col.order,
+      requiredForCompletion: col.requiredForCompletion ?? false,
+      alignment: col.alignment ?? 'auto',
     });
-
     for (const opt of col.options ?? []) {
       const newOptId = uuidv4();
       optionIdMap.set(opt.id, newOptId);
-      await prisma.columnOption.create({
-        data: {
-          id: newOptId,
-          columnId: newColId,
-          value: opt.value,
-          color: opt.color ?? null,
-          order: opt.order,
-        },
-      });
+      options.push({ id: newOptId, columnId: newColId, value: opt.value, color: opt.color ?? null, order: opt.order });
     }
   }
 
-  let taskCount = 0;
+  const taskRows: Prisma.TaskCreateManyInput[] = [];
+  const cells: Prisma.CellValueCreateManyInput[] = [];
   for (const task of tasks) {
-    const newTaskId = uuidv4();
-    await prisma.task.create({ data: { id: newTaskId, boardId: newBoardId, order: task.order } });
+    const taskId = uuidv4();
+    taskRows.push({ id: taskId, boardId, order: task.order });
 
     for (const [oldColId, value] of Object.entries(task.cells ?? {})) {
-      const newColId = columnIdMap.get(oldColId);
-      if (!newColId) continue;
+      const col = colById.get(oldColId);
+      if (!col) continue;
 
-      const col = board.columns.find((c) => c.id === oldColId);
       let remappedValue = value;
-
-      if (col?.type === 'DROPDOWN' || col?.type === 'SOURCE') {
+      if (col.type === 'DROPDOWN' || col.type === 'SOURCE') {
         remappedValue = optionIdMap.get(value) ?? value;
-      } else if (col?.type === 'MULTI_SELECT') {
+      } else if (col.type === 'MULTI_SELECT') {
         try {
           const arr = JSON.parse(value) as string[];
           if (Array.isArray(arr)) {
@@ -176,13 +181,12 @@ async function importNewJson(
           // not a JSON array, leave as-is
         }
       }
-
-      await prisma.cellValue.create({ data: { taskId: newTaskId, columnId: newColId, value: remappedValue } });
+      cells.push({ taskId, columnId: col.newId, value: remappedValue });
     }
-    taskCount++;
   }
 
-  return { boardCount: 1, taskCount };
+  await writeBoard({ id: boardId, name: importName }, columns, options, taskRows, cells);
+  return { boardCount: 1, taskCount: taskRows.length };
 }
 
 async function importCsvBoard(
@@ -199,47 +203,31 @@ async function importCsvBoard(
   const importName = resolveImportName(existingNames, boardName);
   existingNames.add(importName);
 
-  const newBoardId = uuidv4();
-  await prisma.board.create({ data: { id: newBoardId, name: importName } });
-
-  const columns = headers.map((h, i) => ({
+  const boardId = uuidv4();
+  const columns: Prisma.ColumnCreateManyInput[] = headers.map((h, i) => ({
     id: uuidv4(),
+    boardId,
     name: h.trim() || `Column ${i + 1}`,
+    type: 'TEXT' as ColumnType,
     order: i,
+    requiredForCompletion: false,
+    alignment: 'auto',
   }));
 
-  for (const col of columns) {
-    await prisma.column.create({
-      data: {
-        id: col.id,
-        boardId: newBoardId,
-        name: col.name,
-        type: 'TEXT' as ColumnType,
-        order: col.order,
-        requiredForCompletion: false,
-        alignment: 'auto',
-      },
-    });
-  }
-
-  let taskCount = 0;
-  for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
-    const row = dataRows[rowIdx];
-    if (row.every((cell) => cell === '')) continue;
-
-    const newTaskId = uuidv4();
-    await prisma.task.create({ data: { id: newTaskId, boardId: newBoardId, order: rowIdx } });
-
-    for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+  const taskRows: Prisma.TaskCreateManyInput[] = [];
+  const cells: Prisma.CellValueCreateManyInput[] = [];
+  dataRows.forEach((row, rowIdx) => {
+    if (row.every((cell) => cell === '')) return;
+    const taskId = uuidv4();
+    taskRows.push({ id: taskId, boardId, order: rowIdx });
+    columns.forEach((col, colIdx) => {
       const value = row[colIdx] ?? '';
-      if (value) {
-        await prisma.cellValue.create({ data: { taskId: newTaskId, columnId: columns[colIdx].id, value } });
-      }
-    }
-    taskCount++;
-  }
+      if (value) cells.push({ taskId, columnId: col.id!, value });
+    });
+  });
 
-  return { boardCount: 1, taskCount };
+  await writeBoard({ id: boardId, name: importName }, columns, [], taskRows, cells);
+  return { boardCount: 1, taskCount: taskRows.length };
 }
 
 // POST /api/import/all — import from CSV, JSON, or ZIP

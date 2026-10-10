@@ -162,6 +162,17 @@ const handlers: ConnectorHandlers = {
       }
     });
 
+    // GET /queue/count — for the header badge, which only needs the number
+    router.get('/queue/count', async (req, res) => {
+      try {
+        const count = await prisma.emailMessage.count({ where: { imported: false } });
+        res.json({ count });
+      } catch (error) {
+        console.error('Error counting email queue:', error);
+        res.status(500).json({ error: 'Failed to count email queue' });
+      }
+    });
+
     // GET /queue
     router.get('/queue', async (req, res) => {
       try {

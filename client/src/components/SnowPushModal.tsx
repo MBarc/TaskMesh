@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Sparkles } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -41,8 +42,14 @@ function calculatePriority(urgency: string, impact: string): string {
   return '5 - Planning';
 }
 
+const SNOW_FIELD_INSTRUCTIONS: Record<string, string> = {
+  short_description: 'Write a concise one-line summary for this ServiceNow incident based on the task context. Output ONLY the summary text.',
+  description: 'Write a detailed description for this ServiceNow incident based on the task context. Include relevant details, impact, and any steps to reproduce if applicable.',
+  comment: 'Write a professional work note / comment for this ServiceNow incident update based on the task context. Be concise and informative.',
+};
+
 export function SnowPushModal() {
-  const { snowPushModal, closeSnowPushModal } = useBoardStore();
+  const { snowPushModal, closeSnowPushModal } = useBoardStore(useShallow(({ snowPushModal, closeSnowPushModal }) => ({ snowPushModal, closeSnowPushModal })));
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Form fields
@@ -141,34 +148,27 @@ export function SnowPushModal() {
   const priority = calculatePriority(urgency, impact);
   const subcategories = CATEGORY_SUBCATEGORIES[category] || [];
 
-  const handleGenerateField = async (fieldName: string) => {
-    const instructions: Record<string, string> = {
-      short_description: 'Write a concise one-line summary for this ServiceNow incident based on the task context. Output ONLY the summary text.',
-      description: 'Write a detailed description for this ServiceNow incident based on the task context. Include relevant details, impact, and any steps to reproduce if applicable.',
-      comment: 'Write a professional work note / comment for this ServiceNow incident update based on the task context. Be concise and informative.',
-    };
+  const generate = async (fieldName: string) => {
+    const result = await api.generateSnowField({
+      taskId: snowPushModal.taskId,
+      fieldName,
+      aiInstructions: SNOW_FIELD_INSTRUCTIONS[fieldName] || `Generate content for the ${fieldName} field of a ServiceNow incident.`,
+      title: shortDescription || undefined,
+    });
+    return result.content;
+  };
 
+  const applyField = (fieldName: string, content: string) => {
+    if (fieldName === 'short_description') setShortDescription(content.trim());
+    if (fieldName === 'description') setDescription(content);
+    if (fieldName === 'comment') setComment(content);
+  };
+
+  const handleGenerateField = async (fieldName: string) => {
     setGeneratingField(fieldName);
     setError(null);
     try {
-      const result = await api.generateSnowField({
-        taskId: snowPushModal.taskId,
-        fieldName,
-        aiInstructions: instructions[fieldName] || `Generate content for the ${fieldName} field of a ServiceNow incident.`,
-        title: shortDescription || undefined,
-      });
-
-      switch (fieldName) {
-        case 'short_description':
-          setShortDescription(result.content.trim());
-          break;
-        case 'description':
-          setDescription(result.content);
-          break;
-        case 'comment':
-          setComment(result.content);
-          break;
-      }
+      applyField(fieldName, await generate(fieldName));
     } catch (err: any) {
       setError(err.message || 'Failed to generate field');
     } finally {
@@ -181,32 +181,11 @@ export function SnowPushModal() {
     setError(null);
 
     const fields = ['short_description', 'description'];
-    const instructions: Record<string, string> = {
-      short_description: 'Write a concise one-line summary for this ServiceNow incident based on the task context. Output ONLY the summary text.',
-      description: 'Write a detailed description for this ServiceNow incident based on the task context. Include relevant details, impact, and any steps to reproduce if applicable.',
-    };
-
-    const promises = fields.map(async (fieldName) => {
-      const result = await api.generateSnowField({
-        taskId: snowPushModal.taskId,
-        fieldName,
-        aiInstructions: instructions[fieldName],
-        title: shortDescription || undefined,
-      });
-      return { fieldName, content: result.content };
+    const results = await Promise.allSettled(fields.map(generate));
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') applyField(fields[i], r.value);
     });
-
-    const results = await Promise.allSettled(promises);
-
-    for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
-      const { fieldName, content } = result.value;
-      if (fieldName === 'short_description') setShortDescription(content.trim());
-      if (fieldName === 'description') setDescription(content);
-    }
-
-    const failures = results.filter((r) => r.status === 'rejected');
-    if (failures.length === results.length) {
+    if (results.every((r) => r.status === 'rejected')) {
       setError('Failed to generate all fields');
     }
 

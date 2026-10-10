@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Search, RefreshCw } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -22,7 +23,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function EmailImportModal() {
-  const { emailImportModal, closeEmailImportModal, currentBoard } = useBoardStore();
+  const { emailImportModal, closeEmailImportModal, currentBoard } = useBoardStore(useShallow(({ emailImportModal, closeEmailImportModal, currentBoard }) => ({ emailImportModal, closeEmailImportModal, currentBoard })));
   const [queue, setQueue] = useState<EmailQueueItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);

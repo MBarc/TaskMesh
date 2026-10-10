@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Menu, Transition } from '@headlessui/react';
 import { Palette, Check, Sun, Moon } from 'lucide-react';
 import { useThemeStore, themes } from '../stores/themeStore';
@@ -8,7 +9,7 @@ interface ThemePickerProps {
 }
 
 export function ThemePicker({ expanded = false }: ThemePickerProps) {
-  const { themeId, setTheme, currentTheme, customThemes } = useThemeStore();
+  const { themeId, setTheme, currentTheme, customThemes } = useThemeStore(useShallow(({ themeId, setTheme, currentTheme, customThemes }) => ({ themeId, setTheme, currentTheme, customThemes })));
   const theme = currentTheme();
   const isDark = theme.isDark;
   const isCustom = themeId.startsWith('custom-');

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { ChevronLeft, Sparkles, Save, Check, X, Loader2, Wand2, AlertTriangle } from 'lucide-react';
 import { useThemeStore } from '../stores/themeStore';
 import { builtInThemes, THEME_COLOR_KEYS } from '../themes/themeDefinitions';
@@ -49,7 +50,7 @@ export function ThemeStudio({ onClose }: ThemeStudioProps) {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const previewTimeout = useRef<ReturnType<typeof setTimeout>>();
 
-  const { previewTheme, clearPreview, saveStudioTheme, findCustomThemeByName, overwriteCustomTheme } = useThemeStore();
+  const { previewTheme, clearPreview, saveStudioTheme, findCustomThemeByName, overwriteCustomTheme } = useThemeStore(useShallow(({ previewTheme, clearPreview, saveStudioTheme, findCustomThemeByName, overwriteCustomTheme }) => ({ previewTheme, clearPreview, saveStudioTheme, findCustomThemeByName, overwriteCustomTheme })));
 
   const buildDef = useCallback((): ThemeDefinition => ({
     id: '',

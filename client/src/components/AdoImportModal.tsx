@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Search } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -26,7 +27,7 @@ const ADO_STATE_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export function AdoImportModal() {
-  const { adoImportModal, closeAdoImportModal, currentBoard } = useBoardStore();
+  const { adoImportModal, closeAdoImportModal, currentBoard } = useBoardStore(useShallow(({ adoImportModal, closeAdoImportModal, currentBoard }) => ({ adoImportModal, closeAdoImportModal, currentBoard })));
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<AdoWorkItemSearchResult[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());

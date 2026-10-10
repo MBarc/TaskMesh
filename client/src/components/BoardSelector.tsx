@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Menu, Transition } from '@headlessui/react';
 import { ChevronDown, Plus, Trash2, AlertTriangle, Archive, Star } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
@@ -13,9 +14,9 @@ interface DeleteConfirmState {
 }
 
 export function BoardSelector() {
-  const { boards, currentBoard, isArchiveView, fetchBoard, createBoard, deleteBoard, setArchiveView } = useBoardStore();
-  const { settings: archiveSettings, fetchSettings: fetchArchiveSettings } = useArchiveStore();
-  const { favoriteBoardId, setFavoriteBoardId, newBoardSignal } = useUiPrefsStore();
+  const { boards, currentBoard, isArchiveView, fetchBoard, createBoard, deleteBoard, setArchiveView } = useBoardStore(useShallow(({ boards, currentBoard, isArchiveView, fetchBoard, createBoard, deleteBoard, setArchiveView }) => ({ boards, currentBoard, isArchiveView, fetchBoard, createBoard, deleteBoard, setArchiveView })));
+  const { settings: archiveSettings, fetchSettings: fetchArchiveSettings } = useArchiveStore(useShallow(({ settings, fetchSettings }) => ({ settings, fetchSettings })));
+  const { favoriteBoardId, setFavoriteBoardId, newBoardSignal } = useUiPrefsStore(useShallow(({ favoriteBoardId, setFavoriteBoardId, newBoardSignal }) => ({ favoriteBoardId, setFavoriteBoardId, newBoardSignal })));
   const [isCreating, setIsCreating] = useState(false);
 
   // Open the new-board input when Ctrl+B triggers it from App

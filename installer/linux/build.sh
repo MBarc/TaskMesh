@@ -131,64 +131,7 @@ for idx in \
     [[ -f "$idx" ]] && printf '%s' "${ENUM_SHIM}" >> "${idx}" && echo "  Enum shim injected: ${idx}"
 done
 
-# Patch dist/lib/prisma.js with JSON serialization middleware.
-PRISMA_LIB_JS="${SERVER_DIST}/dist/lib/prisma.js"
-if [[ -f "${PRISMA_LIB_JS}" ]]; then
-    cat > "${PRISMA_LIB_JS}" << 'EOFPRISMA'
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.prisma = void 0;
-const client_1 = require("@prisma/client");
-// Auto-serialize / deserialize fields that were Json in PostgreSQL schema
-// but are stored as TEXT (String) in the SQLite schema.
-const _JSON_FIELDS = {
-    ConnectorConfig:         ['config'],
-    AIExtraction:            ['extractedTasks'],
-    DocumentationSettings:   ['templates', 'customVariables'],
-    ArchivedTask:            ['snapshot'],
-    BoardSort:               ['sorts'],
-    CustomTheme:             ['colors'],
-    ApiKey:                  ['scopes'],
-};
-function _fixWrite(model, args) {
-    const fields = _JSON_FIELDS[model] || [];
-    function fix(d) {
-        if (!d || typeof d !== 'object') return;
-        for (const f of fields)
-            if (d[f] !== undefined && d[f] !== null && typeof d[f] !== 'string')
-                d[f] = JSON.stringify(d[f]);
-    }
-    if (args.data)   fix(args.data);
-    if (args.create) fix(args.create);
-    if (args.update) fix(args.update);
-}
-function _fixRead(model, result) {
-    const fields = _JSON_FIELDS[model] || [];
-    if (!fields.length) return result;
-    function fix(obj) {
-        if (!obj || typeof obj !== 'object') return obj;
-        for (const f of fields)
-            if (typeof obj[f] === 'string') try { obj[f] = JSON.parse(obj[f]); } catch {}
-        return obj;
-    }
-    if (Array.isArray(result)) return result.map(fix);
-    return fix(result);
-}
-exports.prisma = new client_1.PrismaClient().$extends({
-    query: {
-        $allModels: {
-            async $allOperations({ model, operation, args, query }) {
-                _fixWrite(model, args);
-                const result = await query(args);
-                return _fixRead(model, result);
-            },
-        },
-    },
-});
-//# sourceMappingURL=prisma.js.map
-EOFPRISMA
-    echo "Patched dist/lib/prisma.js with JSON serialization middleware."
-fi
+# Json columns: server/src/lib/prisma.ts encodes/decodes them when DATABASE_URL is SQLite.
 
 # ── 3. Download Node.js ───────────────────────────────────────────────────────
 NODE_DIR="${DIST}/node"

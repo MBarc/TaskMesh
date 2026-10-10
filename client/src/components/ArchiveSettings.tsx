@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { AlertTriangle } from 'lucide-react';
 import { useArchiveStore } from '../stores/archiveStore';
 
 export function ArchiveSettings() {
-  const { settings, fetchSettings, updateSettings } = useArchiveStore();
+  const { settings, fetchSettings, updateSettings } = useArchiveStore(useShallow(({ settings, fetchSettings, updateSettings }) => ({ settings, fetchSettings, updateSettings })));
   const [retentionDays, setRetentionDays] = useState('30');
   const [showDisableModal, setShowDisableModal] = useState(false);
 

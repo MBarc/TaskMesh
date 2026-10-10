@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Search } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -23,7 +24,7 @@ const STATE_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export function SnowImportModal() {
-  const { snowImportModal, closeSnowImportModal, currentBoard } = useBoardStore();
+  const { snowImportModal, closeSnowImportModal, currentBoard } = useBoardStore(useShallow(({ snowImportModal, closeSnowImportModal, currentBoard }) => ({ snowImportModal, closeSnowImportModal, currentBoard })));
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SnowIncidentSearchResult[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
