@@ -16,8 +16,7 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     });
 
     if (!apiKey || apiKey.status === 'REVOKED' || apiKey.expiresAt < new Date()) {
-      // Key invalid but we still proceed — usage tracking only
-      return next();
+      return res.status(401).json({ error: 'Invalid, revoked, or expired API key' });
     }
 
     // Log usage asynchronously (fire and forget, don't block the request)
@@ -42,6 +41,7 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     };
   } catch (error) {
     console.error('API key auth error:', error);
+    return res.status(500).json({ error: 'API key check failed' });
   }
 
   next();

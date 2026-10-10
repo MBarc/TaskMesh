@@ -72,6 +72,8 @@ services:
       - ../.env
     environment:
       - DOCUMENTATION_PATH=/documentation
+      - HOST=0.0.0.0
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
       - LICENSE_VALIDATION_URL=http://host.docker.internal:3001/api/license/validate
     volumes:
       - uploads:/app/uploads

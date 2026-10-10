@@ -17,6 +17,7 @@ import { notificationRoutes } from './routes/notifications.js';
 import { searchRoutes } from './routes/search.js';
 import documentationRouter from './routes/documentation.js';
 import { apiKeyAuth } from './lib/apiKeyAuth.js';
+import { localGuard } from './lib/localGuard.js';
 import { swaggerSpec } from './lib/swagger.js';
 import { startEmailPoller, stopEmailPoller } from './lib/emailPoller.js';
 import { startArchiveCleaner, stopArchiveCleaner } from './lib/archiveCleaner.js';
@@ -35,9 +36,12 @@ import { capture, shutdown } from './lib/telemetry.js';
 import { prisma } from './lib/prisma.js';
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT) || 4000;
+// Loopback only by default. Docker sets HOST=0.0.0.0 so the container port can be published.
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
+app.use(localGuard);
 app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 app.use(cors());
 app.use(express.json());
@@ -167,8 +171,8 @@ async function start() {
     res.status(500).json({ error: 'Internal server error' });
   });
 
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on ${HOST}:${PORT}`);
     startEmailPoller();
     startArchiveCleaner();
     startNotificationPoller();
