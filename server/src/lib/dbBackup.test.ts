@@ -16,5 +16,13 @@ test('backs up the db and keeps only the newest 3 copies', () => {
   assert.equal(backups.length, 3);
   assert.ok(backups[0].includes('00-00-02'), backups[0]); // oldest two were pruned
   assert.equal(fs.readFileSync(path.join(dir, backups[2]), 'utf8'), 'v1');
+
+  // a hot journal / WAL beside the db is copied with it and pruned with it
+  fs.writeFileSync(db + '-wal', 'wal');
+  for (let i = 5; i < 8; i++) backupSqlite(db, new Date(Date.UTC(2026, 0, 1, 0, 0, i)));
+  const after = fs.readdirSync(dir).filter((f) => f.includes('.backup-')).sort();
+  assert.deepEqual(after.filter((f) => !f.endsWith('-wal')).length, 3);
+  assert.deepEqual(after.filter((f) => f.endsWith('-wal')).length, 3);
+  assert.equal(fs.readFileSync(path.join(dir, after.find((f) => f.endsWith('-wal'))!), 'utf8'), 'wal');
   fs.rmSync(dir, { recursive: true, force: true });
 });
