@@ -9,12 +9,15 @@ function getKey(): Buffer | null {
   return Buffer.from(k, 'hex');
 }
 
+export function isEncrypted(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith(ENC_PREFIX);
+}
+
 export function encrypt(plaintext: string): string {
   const key = getKey();
-  if (!key) {
-    console.warn('[crypto] TASKMESH_ENCRYPTION_KEY not set — credential stored as plaintext');
-    return plaintext;
-  }
+  // Fail closed: never store a credential in plaintext because the key is missing.
+  // The installers generate the key; Docker reads it from .env.
+  if (!key) throw new Error('TASKMESH_ENCRYPTION_KEY is not set (64 hex chars) — refusing to store credentials unencrypted');
   const iv = randomBytes(12);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);

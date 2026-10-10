@@ -55,3 +55,6 @@ installer/linux/packages/com.taskmesh.ai/data/
 
 # To-Do List
 todo.txt
+
+# Update staging when the server runs from a checkout (installed copies use {app}\updater\staged)
+/updater/

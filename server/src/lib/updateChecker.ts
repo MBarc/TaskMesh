@@ -1,7 +1,7 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { prisma } from './prisma.js';
@@ -78,7 +78,14 @@ interface GitHubRelease {
   tag_name: string;
   body: string;
   published_at: string;
-  assets: Array<{ name: string; browser_download_url: string }>;
+  assets: Array<{ name: string; browser_download_url: string; digest?: string | null }>;
+}
+
+/** SHA-256 of a file, lowercase hex. */
+async function sha256File(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest('hex');
 }
 
 function detectOS(): 'windows' | 'linux' | 'docker' {
@@ -186,6 +193,18 @@ async function scheduleAutoApply(): Promise<void> {
   }, applyMs);
 }
 
+/**
+ * Where downloaded updates are staged: inside the install directory (Program Files /
+ * /opt — admin/root-only), never a shared temp dir where a local user could pre-create
+ * the folder or plant a link for this SYSTEM/root process to write through. The
+ * updater scripts read from the same place.
+ */
+function stagingDirFor(os_type: 'windows' | 'linux'): string {
+  return os_type === 'windows'
+    ? path.resolve(__dirname, '../../../updater/staged')
+    : path.join(getLinuxInstallDir(), 'staged');
+}
+
 let downloading = false;
 
 async function downloadUpdate(): Promise<void> {
@@ -202,7 +221,10 @@ async function downloadUpdate(): Promise<void> {
       where: { id: 'singleton' },
       select: { updateStagedVersion: true, updateStagedPath: true },
     });
-    if (settings?.updateStagedVersion === version && settings.updateStagedPath && fs.existsSync(settings.updateStagedPath)) {
+    // Only reuse a file in the current staging dir; versions before 0.0.39 staged in
+    // a temp dir the updater script no longer reads from.
+    if (settings?.updateStagedVersion === version && settings.updateStagedPath &&
+        path.dirname(settings.updateStagedPath) === stagingDirFor(os_type) && fs.existsSync(settings.updateStagedPath)) {
       status.stagedVersion = version;
       await scheduleAutoApply();
       return;
@@ -218,9 +240,11 @@ async function downloadUpdate(): Promise<void> {
   const asset = release.assets.find(a => a.name === assetName);
   if (!asset) return;
 
-  const stagingDir = path.join(os.tmpdir(), 'taskmesh-staged');
+  // Older staged versions are cleared first.
+  const stagingDir = stagingDirFor(os_type);
   try {
-    if (!fs.existsSync(stagingDir)) fs.mkdirSync(stagingDir, { recursive: true });
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
   } catch {
     return;
   }
@@ -237,8 +261,17 @@ async function downloadUpdate(): Promise<void> {
     clearTimeout(timer);
     if (!response.ok || !response.body) throw new Error('Download response not ok');
 
-    const writer = fs.createWriteStream(stagingPath);
+    const writer = fs.createWriteStream(stagingPath, { flags: 'wx' }); // never write through an existing file/link
     await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), writer);
+
+    // Early check against the digest GitHub publishes; the updater script that runs
+    // the installer verifies again (and holds the file locked) right before running it.
+    const expected = asset.digest?.replace(/^sha256:/, '').toLowerCase();
+    const actual = await sha256File(stagingPath);
+    if (!expected || expected !== actual) {
+      fs.rmSync(stagingPath, { force: true });
+      throw new Error(`SHA-256 mismatch for ${assetName} (expected ${expected ?? 'none'}, got ${actual})`);
+    }
   } catch (err) {
     console.error('[updateChecker] download failed:', err);
     downloading = false;
@@ -582,53 +615,18 @@ export async function applyUpdate(): Promise<void> {
       if (!preflightAsset) throw new Error(`TaskMesh-Setup.exe is missing from the v${status.latestVersion} release. The update cannot proceed — please try again later.`);
     }
 
-    // Prefer the pre-installed updater script (always present when auto-update is enabled).
+    // The bundled updater script (run as SYSTEM by the TaskMesh-ApplyUpdate task)
+    // verifies the installer's SHA-256 against the release before running it.
+    // There is deliberately no fallback that runs an installer without that check.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
-    if (fs.existsSync(updaterScript)) {
-      const launcher = spawn('schtasks', [
-        '/Run', '/TN', 'TaskMesh-ApplyUpdate',
-      ], { detached: true, stdio: 'ignore' });
-      launcher.on('error', (err) => console.error('[applyUpdate] task trigger error:', err));
-      launcher.unref();
-      return;
+    if (!fs.existsSync(updaterScript)) {
+      throw new Error('Updater script not found. Please reinstall TaskMesh to enable in-app updates.');
     }
-
-    // Fallback: use staged file if available, otherwise download
-    const installerPath = stagedPath ?? path.join(os.tmpdir(), `TaskMesh-Setup-${status.latestVersion}.exe`);
-
-    if (!stagedPath) {
-      const release = await fetchGitHubRelease(`v${status.latestVersion}`);
-      if (!release) throw new Error('Could not fetch release details from GitHub');
-      const asset = release.assets.find(a => a.name === 'TaskMesh-Setup.exe');
-      if (!asset) throw new Error('TaskMesh-Setup.exe not found in release assets');
-
-      const script = [
-        `$url = '${asset.browser_download_url}'`,
-        `$out = '${installerPath.replace(/'/g, "''")}'`,
-        `Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing`,
-        `& sc.exe stop TaskMesh-Server`,
-        `Start-Sleep -Seconds 5`,
-        `Start-Process -FilePath $out -ArgumentList '/QUIET','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`,
-      ].join('; ');
-
-      const child = spawn('powershell.exe', [
-        '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script,
-      ], { detached: true, stdio: 'ignore' });
-      child.unref();
-      return;
-    }
-
-    // Run the staged installer directly via scheduled task approach
-    const script = [
-      `& sc.exe stop TaskMesh-Server`,
-      `Start-Sleep -Seconds 5`,
-      `Start-Process -FilePath '${installerPath.replace(/'/g, "''")}' -ArgumentList '/QUIET','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`,
-    ].join('; ');
-
-    const child = spawn('powershell.exe', [
-      '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script,
+    const launcher = spawn('schtasks', [
+      '/Run', '/TN', 'TaskMesh-ApplyUpdate',
     ], { detached: true, stdio: 'ignore' });
-    child.unref();
+    launcher.on('error', (err) => console.error('[applyUpdate] task trigger error:', err));
+    launcher.unref();
     return;
   }
 

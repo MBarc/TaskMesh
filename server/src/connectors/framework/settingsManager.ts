@@ -105,6 +105,21 @@ export async function saveSettings(
   const existing = await prisma.connectorConfig.findUnique({ where: { id } });
   const existingConfig: Record<string, any> = (existing?.config as Record<string, any>) ?? {};
 
+  // A kept (masked/omitted) secret must not follow a changed destination: otherwise
+  // anyone who can reach the API could point the connector at their own server and
+  // have the next request carry the stored PAT/password there.
+  const changedUrl = manifest.settings.fields.find((f) =>
+    f.type === 'url' && existingConfig[f.key] !== undefined &&
+    normalizeValue(data[f.key], f) !== existingConfig[f.key]);
+  if (changedUrl) {
+    for (const field of manifest.settings.fields) {
+      const value = data[field.key];
+      if (field.secret && existingConfig[field.key] && (!value || (typeof value === 'string' && value.startsWith('****')))) {
+        throw new SettingsValidationError(`Re-enter ${field.label} when changing ${changedUrl.label}`);
+      }
+    }
+  }
+
   // Build the new config object
   const config: Record<string, any> = {};
 

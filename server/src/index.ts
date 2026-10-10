@@ -33,7 +33,8 @@ import { telemetryRoutes } from './routes/telemetry.js';
 import { themeRoutes } from './routes/themes.js';
 import { sortRoutes } from './routes/sorts.js';
 import { capture, shutdown } from './lib/telemetry.js';
-import { prisma } from './lib/prisma.js';
+import { prisma, encryptLegacyCredentials } from './lib/prisma.js';
+import { backupSqlite } from './lib/dbBackup.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -94,10 +95,13 @@ async function initializeTelemetryFromInstaller(): Promise<void> {
 }
 
 // ── Schema migration (SQLite / installer deployments only) ───────────────────
-// Runs `prisma db push --accept-data-loss` at startup to add any columns that
-// were missing because the database was created by an older installer version.
-// This is a no-op when the schema is already current, and is skipped entirely
-// in Docker (PostgreSQL) deployments where migrations are managed externally.
+// Runs `prisma db push` at startup to add tables/columns introduced since the
+// database was created. The SQLite file is backed up first (newest 3 kept), and
+// there is deliberately no --accept-data-loss: Prisma applies additive changes and
+// refuses anything that would drop data, which we surface as a notification.
+// Skipped in Docker (PostgreSQL) deployments, where `npm start` syncs the schema.
+// ponytail: db push, not versioned migrations; adopt `prisma migrate` before the
+// first release that needs to rename or reshape existing columns.
 async function runSchemaMigration(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL ?? '';
   if (!dbUrl.startsWith('file:')) return; // PostgreSQL / Docker — skip
@@ -109,8 +113,18 @@ async function runSchemaMigration(): Promise<void> {
     return;
   }
 
-  await new Promise<void>((resolve) => {
-    const child = spawn(process.execPath, [prismaScript, 'db', 'push', '--accept-data-loss', '--skip-generate'], {
+  // SQLite paths in DATABASE_URL are relative to the prisma/ directory
+  const dbFile = path.resolve(serverDir, 'prisma', dbUrl.slice('file:'.length));
+  try {
+    const backup = backupSqlite(dbFile);
+    if (backup) console.log(`[migration] Backed up database to ${backup}`);
+  } catch (err) {
+    console.error('[migration] Database backup failed — skipping schema sync to be safe:', (err as Error).message);
+    return;
+  }
+
+  const ok = await new Promise<boolean>((resolve) => {
+    const child = spawn(process.execPath, [prismaScript, 'db', 'push', '--skip-generate'], {
       env: process.env,
       cwd: serverDir,
       stdio: 'pipe',
@@ -124,22 +138,41 @@ async function runSchemaMigration(): Promise<void> {
       if (code === 0) {
         console.log('[migration] Database schema is current.');
       } else {
-        console.warn(`[migration] Schema migration exited with code ${code}: ${out.trim()}`);
+        console.error(`[migration] Schema sync refused or failed (code ${code}); no data was dropped: ${out.trim()}`);
       }
-      resolve();
+      resolve(code === 0);
     });
 
     child.on('error', (err) => {
-      console.warn('[migration] Schema migration spawn error:', (err as Error).message);
-      resolve();
+      console.error('[migration] Schema migration spawn error:', (err as Error).message);
+      resolve(false);
     });
   });
+
+  if (!ok) {
+    await prisma.notification.create({
+      data: {
+        source: 'schema-migration',
+        title: 'Database update needs attention',
+        message: `This version's database changes could not be applied automatically, so your data was left untouched. A backup is next to ${path.basename(dbFile)}. Please contact support before continuing.`,
+        severity: 'error',
+      },
+    }).catch(() => { /* table may not exist on a broken schema; the log above still has it */ });
+  }
 }
 
 async function start() {
   // Ensure the SQLite schema is current before any Prisma operations.
   // Adds missing columns to existing databases from older installer versions.
   await runSchemaMigration();
+
+  // Encrypt connector credentials saved by versions that stored them in plaintext
+  try {
+    const n = await encryptLegacyCredentials();
+    if (n) console.log(`[crypto] Encrypted ${n} credential(s) stored in plaintext by an older version.`);
+  } catch (err) {
+    console.error('[crypto] Could not encrypt stored credentials:', (err as Error).message);
+  }
 
   // Connector SDK — auto-discover and register connectors
   const manifests = await registerAllConnectors(app, prisma);

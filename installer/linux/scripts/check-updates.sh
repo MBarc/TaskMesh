@@ -87,25 +87,39 @@ fi
 
 # ── Check for a pre-staged archive (downloaded by the server in the background) ──
 
-STAGED_FILE="/tmp/taskmesh-staged/TaskMesh-Installer-${LATEST_VERSION}.tar.gz"
-SKIP_CLEANUP=false
+STAGED_FILE="${INSTALL_DIR}/staged/TaskMesh-Installer-${LATEST_VERSION}.tar.gz"  # root-only, written by the server
+
+# Work in a private (0700, root-owned) directory: the staged copy in /tmp is
+# copied in first and verified there, so nothing can swap it after the check.
+TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
+ARCHIVE="${TMP_DIR}/TaskMesh-Installer.tar.gz"
 
 if [[ -f "${STAGED_FILE}" ]]; then
   logger -t taskmesh-update "Using pre-staged archive at ${STAGED_FILE}"
-  TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
-  ARCHIVE="${STAGED_FILE}"
-  SKIP_CLEANUP=true
+  cp "${STAGED_FILE}" "${ARCHIVE}"
 else
   # ── Download ──────────────────────────────────────────────────────────────────
-  TMP_DIR=$(mktemp -d "/tmp/taskmesh-update-${LATEST_VERSION}.XXXXXX")
-  ARCHIVE="${TMP_DIR}/TaskMesh-Installer.tar.gz"
-
   logger -t taskmesh-update "Downloading TaskMesh ${LATEST_VERSION} from ${ASSET_URL}"
 
   if ! curl -fsSL --max-time 300 -o "${ARCHIVE}" "${ASSET_URL}" 2>/dev/null; then
     logger -t taskmesh-update "Download failed — will retry next scheduled run."
     exit 0
   fi
+fi
+
+# ── Verify against the SHA-256 GitHub publishes for the asset ────────────────
+# Refuses to install when the digest is missing or does not match.
+EXPECTED_SHA=$(printf '%s' "${RELEASE_JSON}" | "${INSTALL_DIR}/node/bin/node" -e '
+  let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+    const a = JSON.parse(s).assets.find((x) => x.name === "TaskMesh-Installer.tar.gz");
+    process.stdout.write(((a && a.digest) || "").replace(/^sha256:/, ""));
+  });' 2>/dev/null)
+ACTUAL_SHA=$(sha256sum "${ARCHIVE}" | cut -d' ' -f1)
+
+if [[ -z "${EXPECTED_SHA}" || "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
+  logger -t taskmesh-update "Refusing update ${LATEST_VERSION}: SHA-256 mismatch (expected '${EXPECTED_SHA}', got '${ACTUAL_SHA}')."
+  rm -f "${STAGED_FILE}"
+  exit 0
 fi
 
 # ── Extract ───────────────────────────────────────────────────────────────────

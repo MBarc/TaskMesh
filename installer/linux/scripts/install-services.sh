@@ -108,7 +108,7 @@ export DATABASE_URL="file:${DB_FILE}"
 export NODE_ENV="production"
 (
     cd "${INSTALL_DIR}/server"
-    "${NODE}" node_modules/prisma/build/index.js db push --accept-data-loss 2>&1 || true
+    "${NODE}" node_modules/prisma/build/index.js db push 2>&1 || true
 )
 if [[ -f "${DB_FILE}" ]]; then
     echo "Database initialized at: ${DB_FILE}"

@@ -202,7 +202,7 @@ $savedLocation = Get-Location
 try {
     Set-Location (Join-Path $AppDir "server")
     $prismaJs = Join-Path $AppDir "server\node_modules\prisma\build\index.js"
-    $r = Invoke-Hidden -Exe $node -ExeArgs @($prismaJs, "db", "push", "--accept-data-loss")
+    $r = Invoke-Hidden -Exe $node -ExeArgs @($prismaJs, "db", "push")
     if ($r.Output) { Write-Host $r.Output }
     if (Test-Path $dbFile) {
         Write-Host "Database initialized at: $dbFile"

@@ -24,32 +24,86 @@ const getDocPath = () => process.env.DOCUMENTATION_PATH || '/wiki';
 
 // ── Filesystem sync helpers ────────────────────────────────────────────────
 
-function sanitizeFsName(name: string): string {
-  return (name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()) || '_';
+// Board, folder and file names become path segments. Separators are replaced, and
+// dot-only names ("." / "..") would step out of the wiki root, so they become "_".
+export function sanitizeFsName(name: string): string {
+  const safe = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
+  return !safe || /^\.+$/.test(safe) ? '_' : safe;
+}
+
+/** True when `target` resolves to `base` itself or somewhere beneath it. */
+export function isInside(base: string, target: string): boolean {
+  const rel = path.relative(path.resolve(base), path.resolve(target));
+  return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+}
+
+/** `p` with symlinks/junctions resolved in the deepest part of it that exists. */
+function realpathOfExisting(p: string): string {
+  let cur = path.resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    try { fs.lstatSync(cur); break; } catch { /* doesn't exist yet */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    rest.unshift(path.basename(cur));
+    cur = parent;
+  }
+  return path.join(fs.realpathSync.native(cur), ...rest); // throws on a dangling link
+}
+
+/**
+ * Returns `p` if it stays inside the wiki root once links are resolved; throws
+ * otherwise. The wiki lives in a user-writable folder while the server may run as
+ * SYSTEM, so a junction planted inside it must not redirect reads, writes or deletes.
+ * ponytail: check-then-use, so a link swapped in between can still race it; running
+ * the service as an unprivileged account removes the race entirely.
+ */
+/** True if `p` or any existing folder above it is a symlink or junction. */
+function hasLinkInPath(p: string): boolean {
+  let cur = path.resolve(p);
+  for (;;) {
+    try { if (fs.lstatSync(cur).isSymbolicLink()) return true; } catch { /* not created yet */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) return false;
+    cur = parent;
+  }
+}
+
+export function contained(p: string, root = getDocPath()): string {
+  let ok = false;
+  try {
+    // The root itself and every folder above it must be real directories too:
+    // otherwise replacing e.g. Documents\TaskMesh\documentation with a junction
+    // would silently move the whole wiki (and every SYSTEM write) elsewhere.
+    // (Checked per component with lstat, so 8.3 names and case differences pass.)
+    ok = !hasLinkInPath(root) && isInside(realpathOfExisting(root), realpathOfExisting(p));
+  } catch { /* unresolvable link */ }
+  if (!ok) throw new Error(`Refusing wiki path outside the documentation root (or the root path contains a link): ${p}`);
+  return p;
 }
 
 async function getBoardFsRoot(boardId: string): Promise<string> {
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
-  return path.join(getDocPath(), board ? sanitizeFsName(board.name) : sanitizeFsName(boardId));
+  return contained(path.join(getDocPath(), board ? sanitizeFsName(board.name) : sanitizeFsName(boardId)));
 }
 
 async function getFolderFsPath(folder: { name: string; parentFolderId: string | null; boardId: string }): Promise<string> {
   const base = await getBoardFsRoot(folder.boardId);
   const safeName = sanitizeFsName(folder.name);
-  if (!folder.parentFolderId) return path.join(base, safeName);
+  if (!folder.parentFolderId) return contained(path.join(base, safeName));
   const parent = await prisma.documentationFolder.findUnique({ where: { id: folder.parentFolderId }, select: { name: true } });
-  return path.join(base, parent ? sanitizeFsName(parent.name) : folder.parentFolderId, safeName);
+  return contained(path.join(base, parent ? sanitizeFsName(parent.name) : folder.parentFolderId, safeName));
 }
 
 async function getFileFsPath(file: { name: string; folderId: string | null; boardId: string }): Promise<string> {
   const base = await getBoardFsRoot(file.boardId);
   const raw = sanitizeFsName(file.name);
   const safeName = raw.toLowerCase().endsWith('.md') ? raw : `${raw}.md`;
-  if (!file.folderId) return path.join(base, safeName);
+  if (!file.folderId) return contained(path.join(base, safeName));
   const folder = await prisma.documentationFolder.findUnique({ where: { id: file.folderId }, select: { name: true, parentFolderId: true } });
-  if (!folder) return path.join(base, safeName);
+  if (!folder) return contained(path.join(base, safeName));
   const folderPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: file.boardId });
-  return path.join(folderPath, safeName);
+  return contained(path.join(folderPath, safeName));
 }
 
 function fsTry(label: string, fn: () => void): void {
@@ -137,6 +191,8 @@ router.post('/save-document', async (req, res) => {
           select: { name: true, folderId: true, boardId: true },
         });
         const oldFsPath = before ? await getFileFsPath(before) : null;
+        // Validate the destination before touching the database
+        const newFsPath = before ? await getFileFsPath({ ...before, name: baseName }) : null;
 
         const updated = await prisma.documentationFile.update({
           where: { id: existingDocFileId },
@@ -144,19 +200,18 @@ router.post('/save-document', async (req, res) => {
         });
         docFileId = updated.id;
 
-        const newFsPath = await getFileFsPath({ name: updated.name, folderId: updated.folderId, boardId: updated.boardId });
-        fsTry('save-document update', () => {
+        if (newFsPath) fsTry('save-document update', () => {
           fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
           if (oldFsPath && oldFsPath !== newFsPath && fs.existsSync(oldFsPath)) fs.renameSync(oldFsPath, newFsPath);
           fs.writeFileSync(newFsPath, content, 'utf-8');
         });
       } else {
         // Legacy cell (filePath format) — create a new wiki file
+        const fsPath = await getFileFsPath({ name: baseName, folderId: null, boardId }); // validate first
         const file = await prisma.documentationFile.create({
           data: { boardId, name: baseName, content, folderId: null },
         });
         docFileId = file.id;
-        const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
         fsTry('save-document create (legacy upgrade)', () => {
           fs.mkdirSync(path.dirname(fsPath), { recursive: true });
           fs.writeFileSync(fsPath, content, 'utf-8');
@@ -164,11 +219,11 @@ router.post('/save-document', async (req, res) => {
       }
     } else {
       // No existing cell — create a new wiki file
+      const fsPath = await getFileFsPath({ name: baseName, folderId: null, boardId }); // validate first
       const file = await prisma.documentationFile.create({
         data: { boardId, name: baseName, content, folderId: null },
       });
       docFileId = file.id;
-      const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
       fsTry('save-document create', () => {
         fs.mkdirSync(path.dirname(fsPath), { recursive: true });
         fs.writeFileSync(fsPath, content, 'utf-8');
@@ -305,10 +360,7 @@ router.post('/read-document', async (req, res) => {
       return res.status(400).json({ error: 'filePath is required' });
     }
 
-    const normalizedFilePath = path.normalize(filePath);
-    const normalizedBasePath = path.normalize(getDocPath());
-
-    if (!normalizedFilePath.startsWith(normalizedBasePath)) {
+    try { contained(filePath); } catch {
       return res.status(403).json({ error: 'Access denied: file is outside base path' });
     }
 
@@ -381,6 +433,10 @@ router.post('/wiki/folders', async (req, res) => {
       }
     }
 
+    // Resolve (and validate) the on-disk path before writing the row, so a refused
+    // path doesn't leave a folder in the database without one on disk.
+    const fsPath = await getFolderFsPath({ name: name.trim(), parentFolderId: parentFolderId || null, boardId });
+
     const folder = await prisma.documentationFolder.create({
       data: { boardId, name: name.trim(), parentFolderId: parentFolderId || null },
       include: {
@@ -391,7 +447,6 @@ router.post('/wiki/folders', async (req, res) => {
       },
     });
 
-    const fsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId });
     fsTry('create folder', () => fs.mkdirSync(fsPath, { recursive: true }));
 
     res.json(folder);
@@ -411,6 +466,8 @@ router.put('/wiki/folders/:id', async (req, res) => {
 
     const before = await prisma.documentationFolder.findUnique({ where: { id }, select: { name: true, parentFolderId: true, boardId: true } });
     const oldFsPath = before ? await getFolderFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFolderFsPath({ ...before, name: name.trim() }) : null;
 
     const folder = await prisma.documentationFolder.update({
       where: { id },
@@ -429,8 +486,7 @@ router.put('/wiki/folders/:id', async (req, res) => {
       },
     });
 
-    const newFsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: folder.boardId });
-    fsTry('rename folder', () => {
+    if (newFsPath) fsTry('rename folder', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.renameSync(oldFsPath, newFsPath);
       } else {
@@ -484,6 +540,8 @@ router.put('/wiki/folders/:id/move', async (req, res) => {
 
     const before = await prisma.documentationFolder.findUnique({ where: { id }, select: { name: true, parentFolderId: true, boardId: true } });
     const oldFsPath = before ? await getFolderFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFolderFsPath({ ...before, parentFolderId: parentFolderId || null }) : null;
 
     const folder = await prisma.documentationFolder.update({
       where: { id },
@@ -502,8 +560,7 @@ router.put('/wiki/folders/:id/move', async (req, res) => {
       },
     });
 
-    const newFsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: folder.boardId });
-    fsTry('move folder', () => {
+    if (newFsPath) fsTry('move folder', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
         fs.renameSync(oldFsPath, newFsPath);
@@ -528,11 +585,13 @@ router.post('/wiki/files', async (req, res) => {
       return res.status(400).json({ error: 'boardId and name are required' });
     }
 
+    // Validate the on-disk path before writing the row (see folder create).
+    const fsPath = await getFileFsPath({ name: name.trim(), folderId: folderId || null, boardId });
+
     const file = await prisma.documentationFile.create({
       data: { boardId, name: name.trim(), folderId: folderId || null, content: content || '' },
     });
 
-    const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
     fsTry('create file', () => {
       fs.mkdirSync(path.dirname(fsPath), { recursive: true });
       fs.writeFileSync(fsPath, content || '', 'utf-8');
@@ -577,6 +636,8 @@ router.put('/wiki/files/:id', async (req, res) => {
 
     const before = await prisma.documentationFile.findUnique({ where: { id }, select: { name: true, folderId: true, boardId: true } });
     const oldFsPath = before ? await getFileFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFileFsPath({ ...before, ...(name !== undefined && { name: name.trim() }) }) : null;
 
     const data: { name?: string; content?: string } = {};
     if (name !== undefined) data.name = name.trim();
@@ -584,8 +645,7 @@ router.put('/wiki/files/:id', async (req, res) => {
 
     const file = await prisma.documentationFile.update({ where: { id }, data });
 
-    const newFsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
-    fsTry('update file', () => {
+    if (newFsPath) fsTry('update file', () => {
       fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
       if (name !== undefined && oldFsPath && oldFsPath !== newFsPath && fs.existsSync(oldFsPath)) {
         fs.renameSync(oldFsPath, newFsPath);
@@ -625,14 +685,15 @@ router.put('/wiki/files/:id/move', async (req, res) => {
 
     const before = await prisma.documentationFile.findUnique({ where: { id }, select: { name: true, folderId: true, boardId: true } });
     const oldFsPath = before ? await getFileFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFileFsPath({ ...before, folderId: folderId || null }) : null;
 
     const file = await prisma.documentationFile.update({
       where: { id },
       data: { folderId: folderId || null },
     });
 
-    const newFsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
-    fsTry('move file', () => {
+    if (newFsPath) fsTry('move file', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
         fs.renameSync(oldFsPath, newFsPath);

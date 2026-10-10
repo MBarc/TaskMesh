@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc && node -e \"const fs=require('fs'),p=require('path');const d='src/connectors';fs.readdirSync(d,{withFileTypes:true}).filter(e=>e.isDirectory()&&e.name!=='framework').forEach(e=>{const s=p.join(d,e.name,'manifest.json'),t=p.join('dist/connectors',e.name,'manifest.json');if(fs.existsSync(s))fs.copyFileSync(s,t)})\"",
-    "start": "prisma db push --accept-data-loss && node dist/index.js",
+    "start": "prisma db push && node dist/index.js",
     "start:windows": "node dist/index.js",
     "test": "tsx --test src/**/*.test.ts",
     "db:migrate": "prisma migrate dev",
