@@ -250,8 +250,12 @@ async def generate_theme(request: GenerateThemeRequest):
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
-async def transcribe(request: TranscribeRequest):
-    """Transcribe audio/video file using faster-whisper."""
+def transcribe(request: TranscribeRequest):
+    """Transcribe audio/video file using faster-whisper.
+
+    Plain `def` on purpose: FastAPI runs it in its threadpool, so a long
+    transcription no longer blocks every other endpoint on the event loop.
+    """
     try:
         if not os.path.exists(request.filepath):
             raise HTTPException(status_code=404, detail="File not found")

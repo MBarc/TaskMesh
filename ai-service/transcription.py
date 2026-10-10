@@ -1,4 +1,5 @@
 import os
+import threading
 from faster_whisper import WhisperModel
 
 # Get whisper model from environment, default to 'tiny' for low memory
@@ -12,6 +13,9 @@ WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", None)
 
 # Lazy load the model
 _model = None
+# One transcription at a time: they run in FastAPI's threadpool and share one
+# CPU-heavy model. Also guards the lazy load against concurrent first calls.
+_lock = threading.Lock()
 
 
 def get_model():
@@ -38,8 +42,11 @@ def transcribe_audio(filepath: str) -> str:
     Returns:
         Transcribed text
     """
-    model = get_model()
+    with _lock:
+        return _transcribe(get_model(), filepath)
 
+
+def _transcribe(model, filepath: str) -> str:
     # Transcribe the file
     segments, info = model.transcribe(
         filepath,
