@@ -36,7 +36,7 @@ function formatElapsed(startIso: string): string {
 }
 
 export function AIExtractor() {
-  const { currentBoard, bulkCreateTasks, ensureSourceColumn } = useBoardStore(useShallow(({ currentBoard, bulkCreateTasks, ensureSourceColumn }) => ({ currentBoard, bulkCreateTasks, ensureSourceColumn })));
+  const { currentBoard, bulkCreateTasks, ensureManagedColumn } = useBoardStore(useShallow(({ currentBoard, bulkCreateTasks, ensureManagedColumn }) => ({ currentBoard, bulkCreateTasks, ensureManagedColumn })));
   const [activeTab, setActiveTab] = useState<Tab>('notes');
 
   // Notes tab state
@@ -285,7 +285,7 @@ export function AIExtractor() {
     setApproveLoading(true);
     setApproveError(null);
     try {
-      const sourceColumn = await ensureSourceColumn();
+      const sourceColumn = await ensureManagedColumn('SOURCE');
       const tasksToCreate = selectedTasks.map((task) => {
         const cellValues: Record<string, string> = { [titleColumn.id]: task.title };
         if (sourceColumn && extractionId) {

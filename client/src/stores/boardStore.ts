@@ -1,8 +1,19 @@
 import { create } from 'zustand';
 import type { Board, Column, ColumnType, Platform, EmailCellValue } from '../types';
 import * as api from '../api';
-import { connectorAction } from '../api/connectors';
 import { useUiPrefsStore } from './uiPrefsStore';
+
+// Columns the server creates and removes for a feature (at most one per board).
+const MANAGED_COLUMNS = {
+  SOURCE: { label: 'source', ensure: api.ensureSourceColumn },
+  ADO_PUSH: { label: 'ADO', ensure: api.ensureAdoColumn, remove: api.removeAdoColumn },
+  ITEM_NO: { label: 'ServiceNow', ensure: api.ensureItemNoColumn, remove: api.removeItemNoColumn },
+  SNOW_PUSH: { label: 'SNOW Push', ensure: api.ensureSnowPushColumn, remove: api.removeSnowPushColumn },
+  EMAIL: { label: 'email', ensure: api.ensureEmailColumn, remove: api.removeEmailColumn },
+  DOCUMENTATION: { label: 'documentation', ensure: api.ensureDocumentationColumn, remove: api.removeDocumentationColumn },
+} satisfies Partial<Record<ColumnType, { label: string; ensure: (boardId: string) => Promise<Column>; remove?: (boardId: string) => Promise<void> }>>;
+
+export type ManagedColumnType = keyof typeof MANAGED_COLUMNS;
 
 interface TranscriptOverlayState {
   extractionId: string;
@@ -118,20 +129,9 @@ interface BoardState {
   updateColumn: (columnId: string, name: string, options?: { id?: string; value: string; color?: string }[], requiredForCompletion?: boolean, alignment?: string) => Promise<void>;
   deleteColumn: (columnId: string) => Promise<void>;
   reorderColumns: (columnIds: string[]) => Promise<void>;
-  ensureSourceColumn: () => Promise<Column | null>;
-  ensureAdoColumn: () => Promise<Column | null>;
-  removeAdoColumn: () => Promise<void>;
-  ensureItemNoColumn: () => Promise<Column | null>;
-  removeItemNoColumn: () => Promise<void>;
-  ensureSnowPushColumn: () => Promise<Column | null>;
-  removeSnowPushColumn: () => Promise<void>;
-  ensureEmailColumn: () => Promise<Column | null>;
-  removeEmailColumn: () => Promise<void>;
-  ensureDocumentationColumn: () => Promise<Column | null>;
-  removeDocumentationColumn: () => Promise<void>;
-
-  // Generic connector column (for future/dynamic connectors)
-  ensureConnectorColumn: (connectorId: string, columnType: ColumnType, columnName: string) => Promise<Column | null>;
+  /** Server-managed columns (one per board): created and removed by type. */
+  ensureManagedColumn: (type: ManagedColumnType) => Promise<Column | null>;
+  removeManagedColumn: (type: Exclude<ManagedColumnType, 'SOURCE'>) => Promise<void>;
 
   // Task actions
   addTask: (cellValues?: Record<string, string>) => Promise<void>;
@@ -404,16 +404,15 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }
   },
 
-  ensureSourceColumn: async () => {
+  ensureManagedColumn: async (type) => {
     const { currentBoard } = get();
     if (!currentBoard) return null;
 
-    // Check if SOURCE column already exists locally
-    const existing = currentBoard.columns.find((c) => c.type === 'SOURCE');
+    const existing = currentBoard.columns.find((c) => c.type === type);
     if (existing) return existing;
 
     try {
-      const column = await api.ensureSourceColumn(currentBoard.id);
+      const column = await MANAGED_COLUMNS[type].ensure(currentBoard.id);
       set((state) => ({
         currentBoard: state.currentBoard
           ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
@@ -421,234 +420,24 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }));
       return column;
     } catch (error) {
-      set({ error: 'Failed to ensure source column' });
+      set({ error: `Failed to ensure ${MANAGED_COLUMNS[type].label} column` });
       return null;
     }
   },
 
-  ensureAdoColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    // Check if ADO_PUSH column already exists locally
-    const existing = currentBoard.columns.find((c) => c.type === 'ADO_PUSH');
-    if (existing) return existing;
-
-    try {
-      const column = await api.ensureAdoColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: 'Failed to ensure ADO column' });
-      return null;
-    }
-  },
-
-  removeAdoColumn: async () => {
+  removeManagedColumn: async (type) => {
     const { currentBoard } = get();
     if (!currentBoard) return;
 
     try {
-      await api.removeAdoColumn(currentBoard.id);
+      await MANAGED_COLUMNS[type].remove(currentBoard.id);
       set((state) => ({
         currentBoard: state.currentBoard
-          ? {
-              ...state.currentBoard,
-              columns: state.currentBoard.columns.filter((c) => c.type !== 'ADO_PUSH'),
-            }
+          ? { ...state.currentBoard, columns: state.currentBoard.columns.filter((c) => c.type !== type) }
           : null,
       }));
     } catch (error) {
-      set({ error: 'Failed to remove ADO column' });
-    }
-  },
-
-  ensureItemNoColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    const existing = currentBoard.columns.find((c) => c.type === 'ITEM_NO');
-    if (existing) return existing;
-
-    try {
-      const column = await api.ensureItemNoColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: 'Failed to ensure ServiceNow column' });
-      return null;
-    }
-  },
-
-  removeItemNoColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return;
-
-    try {
-      await api.removeItemNoColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? {
-              ...state.currentBoard,
-              columns: state.currentBoard.columns.filter((c) => c.type !== 'ITEM_NO'),
-            }
-          : null,
-      }));
-    } catch (error) {
-      set({ error: 'Failed to remove ServiceNow column' });
-    }
-  },
-
-  ensureSnowPushColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    const existing = currentBoard.columns.find((c) => c.type === 'SNOW_PUSH');
-    if (existing) return existing;
-
-    try {
-      const column = await api.ensureSnowPushColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: 'Failed to ensure SNOW Push column' });
-      return null;
-    }
-  },
-
-  removeSnowPushColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return;
-
-    try {
-      await api.removeSnowPushColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? {
-              ...state.currentBoard,
-              columns: state.currentBoard.columns.filter((c) => c.type !== 'SNOW_PUSH'),
-            }
-          : null,
-      }));
-    } catch (error) {
-      set({ error: 'Failed to remove SNOW Push column' });
-    }
-  },
-
-  ensureEmailColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    const existing = currentBoard.columns.find((c) => c.type === 'EMAIL');
-    if (existing) return existing;
-
-    try {
-      const column = await api.ensureEmailColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: 'Failed to ensure email column' });
-      return null;
-    }
-  },
-
-  removeEmailColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return;
-
-    try {
-      await api.removeEmailColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? {
-              ...state.currentBoard,
-              columns: state.currentBoard.columns.filter((c) => c.type !== 'EMAIL'),
-            }
-          : null,
-      }));
-    } catch (error) {
-      set({ error: 'Failed to remove email column' });
-    }
-  },
-
-  ensureDocumentationColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    const existing = currentBoard.columns.find((c) => c.type === 'DOCUMENTATION');
-    if (existing) return existing;
-
-    try {
-      const column = await api.ensureDocumentationColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: 'Failed to ensure documentation column' });
-      return null;
-    }
-  },
-
-  removeDocumentationColumn: async () => {
-    const { currentBoard } = get();
-    if (!currentBoard) return;
-
-    try {
-      await api.removeDocumentationColumn(currentBoard.id);
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? {
-              ...state.currentBoard,
-              columns: state.currentBoard.columns.filter((c) => c.type !== 'DOCUMENTATION'),
-            }
-          : null,
-      }));
-    } catch (error) {
-      set({ error: 'Failed to remove documentation column' });
-    }
-  },
-
-  ensureConnectorColumn: async (connectorId: string, columnType: ColumnType, columnName: string) => {
-    const { currentBoard } = get();
-    if (!currentBoard) return null;
-
-    const existing = currentBoard.columns.find((c) => c.type === columnType);
-    if (existing) return existing;
-
-    try {
-      const column = await connectorAction<Column>(
-        connectorId,
-        `ensure-column`,
-        { boardId: currentBoard.id, columnType, columnName },
-      );
-      set((state) => ({
-        currentBoard: state.currentBoard
-          ? { ...state.currentBoard, columns: [...state.currentBoard.columns, column] }
-          : null,
-      }));
-      return column;
-    } catch (error) {
-      set({ error: `Failed to ensure ${columnName} column` });
-      return null;
+      set({ error: `Failed to remove ${MANAGED_COLUMNS[type].label} column` });
     }
   },
 

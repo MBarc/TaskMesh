@@ -2,21 +2,13 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { X, Plus, Trash2, GripVertical, Plug, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import type { ColumnAlignment } from '../types';
-import { useBoardStore } from '../stores/boardStore';
+import { useBoardStore, type ManagedColumnType } from '../stores/boardStore';
 import { getEmailSettings, getAdoSettings, getSnowSettings } from '../api';
 import type { ColumnType, Column } from '../types';
 
 const CONNECTOR_TYPES = new Set(['ADO_PUSH', 'ITEM_NO', 'SNOW_PUSH', 'EMAIL']);
 // Types that are server-managed (no name field, use ensure/remove endpoints)
 const MANAGED_TYPES = new Set(['ADO_PUSH', 'ITEM_NO', 'SNOW_PUSH', 'EMAIL', 'DOCUMENTATION']);
-
-const CONNECTOR_REMOVE_MAP: Partial<Record<ColumnType, string>> = {
-  ADO_PUSH: 'ado',
-  ITEM_NO: 'item-no',
-  SNOW_PUSH: 'snow-push',
-  EMAIL: 'email',
-  DOCUMENTATION: 'documentation',
-};
 
 interface ColumnEditorProps {
   onClose: () => void;
@@ -55,7 +47,7 @@ const TYPE_LABELS: Partial<Record<ColumnType, string>> = {
 };
 
 export function ColumnEditor({ onClose }: ColumnEditorProps) {
-  const { currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn } = useBoardStore(useShallow(({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn }) => ({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn })));
+  const { currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureManagedColumn, removeManagedColumn } = useBoardStore(useShallow(({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureManagedColumn, removeManagedColumn }) => ({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureManagedColumn, removeManagedColumn })));
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
@@ -210,13 +202,7 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
     setAddError(null);
 
     if (isManagedTypeSelected) {
-      switch (newColumnType) {
-        case 'ADO_PUSH': await ensureAdoColumn(); break;
-        case 'ITEM_NO': await ensureItemNoColumn(); break;
-        case 'SNOW_PUSH': await ensureSnowPushColumn(); break;
-        case 'EMAIL': await ensureEmailColumn(); break;
-        case 'DOCUMENTATION': await ensureDocumentationColumn(); break;
-      }
+      await ensureManagedColumn(newColumnType as ManagedColumnType);
     } else {
       if (!newColumnName.trim()) return;
       await addColumn(
@@ -238,17 +224,10 @@ export function ColumnEditor({ onClose }: ColumnEditorProps) {
   };
 
   const handleDeleteColumn = async (column: Column) => {
-    const removeKey = CONNECTOR_REMOVE_MAP[column.type];
-    if (removeKey) {
+    if (MANAGED_TYPES.has(column.type)) {
       const confirmed = confirm(`Remove the ${TYPE_LABELS[column.type] ?? column.name} column? This will remove all associated data.`);
       if (!confirmed) return;
-      switch (column.type) {
-        case 'ADO_PUSH': await removeAdoColumn(); break;
-        case 'ITEM_NO': await removeItemNoColumn(); break;
-        case 'SNOW_PUSH': await removeSnowPushColumn(); break;
-        case 'EMAIL': await removeEmailColumn(); break;
-        case 'DOCUMENTATION': await removeDocumentationColumn(); break;
-      }
+      await removeManagedColumn(column.type as Exclude<ManagedColumnType, 'SOURCE'>);
     } else {
       if (confirm('Are you sure you want to delete this column? All data in this column will be lost.')) {
         await deleteColumn(column.id);
