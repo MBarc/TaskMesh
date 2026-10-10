@@ -23,6 +23,25 @@ test('contained() refuses paths that a link inside the wiki redirects outside', 
   }
 });
 
+test('contained() refuses everything when the wiki root (or a parent) is itself a link', () => {
+  const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'tm-wikiroot-')));
+  const elsewhere = path.join(tmp, 'elsewhere');
+  const data = path.join(tmp, 'data');
+  fs.mkdirSync(path.join(elsewhere, 'board'), { recursive: true });
+  fs.mkdirSync(data);
+  fs.symlinkSync(elsewhere, path.join(data, 'documentation'), 'junction'); // root replaced by a junction
+  fs.symlinkSync(data, path.join(tmp, 'linked-parent'), 'junction');      // root reached through a linked parent
+  try {
+    assert.throws(() => contained(path.join(data, 'documentation', 'board', 'x.md'), path.join(data, 'documentation')));
+    const realRoot = path.join(data, 'real-docs');
+    fs.mkdirSync(realRoot);
+    assert.ok(contained(path.join(realRoot, 'x.md'), realRoot));
+    assert.throws(() => contained(path.join(tmp, 'linked-parent', 'real-docs', 'x.md'), path.join(tmp, 'linked-parent', 'real-docs')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('sanitizeFsName never yields a segment that leaves its parent', () => {
   for (const evil of ['..', '.', '...', ' .. ', '../x', '..\\x', 'a/b', '']) {
     const safe = sanitizeFsName(evil);

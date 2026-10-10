@@ -60,8 +60,15 @@ function realpathOfExisting(p: string): string {
  */
 export function contained(p: string, root = getDocPath()): string {
   let ok = false;
-  try { ok = isInside(realpathOfExisting(root), realpathOfExisting(p)); } catch { /* unresolvable link */ }
-  if (!ok) throw new Error(`Refusing wiki path outside the documentation root: ${p}`);
+  try {
+    // The root itself and every folder above it must be real directories too:
+    // otherwise replacing e.g. Documents\TaskMesh\documentation with a junction
+    // would silently move the whole wiki (and every SYSTEM write) elsewhere.
+    const rootReal = realpathOfExisting(root);
+    const norm = (s: string) => (process.platform === 'win32' ? s.toLowerCase() : s);
+    ok = norm(rootReal) === norm(path.resolve(root)) && isInside(rootReal, realpathOfExisting(p));
+  } catch { /* unresolvable link */ }
+  if (!ok) throw new Error(`Refusing wiki path outside the documentation root (or the root path contains a link): ${p}`);
   return p;
 }
 
