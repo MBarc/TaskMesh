@@ -102,6 +102,20 @@ else
     echo "Added taskmesh.localhost to /etc/hosts."
 fi
 
+# ── Back up an existing database before this install/update touches it ───────
+# Kept apart from the server's rolling startup backups; newest 3 kept.
+if [[ -f "${DB_FILE}" ]]; then
+    STAMP=$(date +%Y%m%d-%H%M%S)
+    for suffix in "" "-wal" "-journal"; do
+        if [[ -f "${DB_FILE}${suffix}" ]]; then
+            cp -p "${DB_FILE}${suffix}" "${DB_FILE}.pre-update-${STAMP}${suffix}"
+        fi
+    done
+    echo "Backed up existing database to ${DB_FILE}.pre-update-${STAMP}"
+    { ls -1 "${DB_FILE}".pre-update-* 2>/dev/null || true; } | { grep -vE -- '-(wal|journal)$' || true; } |
+        sort -r | tail -n +4 | while read -r old; do rm -f "${old}" "${old}-wal" "${old}-journal"; done
+fi
+
 # ── Initialize SQLite database via Prisma ────────────────────────────────────
 echo "Initializing database..."
 export DATABASE_URL="file:${DB_FILE}"

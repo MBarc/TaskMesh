@@ -54,7 +54,17 @@ export function encryptFields(fields: string[], data: any): void {
 export function decryptFields(fields: string[], row: any): void {
   if (!row || typeof row !== 'object') return;
   for (const f of fields) {
-    if (isEncrypted(row[f])) row[f] = JSON.parse(decrypt(row[f]));
+    if (!isEncrypted(row[f])) continue;
+    try {
+      row[f] = JSON.parse(decrypt(row[f]));
+    } catch (err) {
+      // Wrong or missing key (e.g. a database restored without its encryption.key):
+      // treat the stored credentials as gone so the connector shows as unconfigured
+      // and can be set up again, instead of every read of it failing. The ciphertext
+      // stays in the database until the user saves new settings.
+      console.error('[crypto] Stored credentials could not be decrypted (encryption key changed?) — re-enter them in Settings:', (err as Error).message);
+      row[f] = {};
+    }
   }
 }
 

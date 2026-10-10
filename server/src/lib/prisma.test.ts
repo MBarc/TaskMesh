@@ -20,6 +20,13 @@ test('connector config encrypts at rest and fails closed without a key', () => {
     decryptFields(['config'], legacy);
     assert.deepEqual(legacy.config, { pat: 'plain' });
 
+    // a different key (database restored without its key file) reads as "not configured"
+    const stored: any = { config: { pat: 'secret' } };
+    encryptFields(['config'], stored);
+    process.env.TASKMESH_ENCRYPTION_KEY = 'b'.repeat(64);
+    decryptFields(['config'], stored);
+    assert.deepEqual(stored.config, {});
+
     delete process.env.TASKMESH_ENCRYPTION_KEY;
     assert.throws(() => encrypt('x'), /refusing to store credentials unencrypted/);
   } finally {

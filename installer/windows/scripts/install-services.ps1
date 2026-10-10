@@ -194,6 +194,25 @@ try {
     Write-Warning "Registry write failed: $_ (continuing)"
 }
 
+# Back up an existing database before this install/update touches it. Kept apart
+# from the server's rolling startup backups (taskmesh.db.backup-*) so it can't
+# rotate out; the newest 3 pre-update copies are kept.
+if (Test-Path $dbFile) {
+    try {
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        foreach ($suffix in @("", "-wal", "-journal")) {
+            if (Test-Path "$dbFile$suffix") { Copy-Item "$dbFile$suffix" "$dbFile.pre-update-$stamp$suffix" -Force }
+        }
+        Write-Host "Backed up existing database to $dbFile.pre-update-$stamp"
+        Get-ChildItem -Path (Split-Path $dbFile) -Filter "$(Split-Path $dbFile -Leaf).pre-update-*" |
+            Where-Object { $_.Name -notmatch '-(wal|journal)$' } |
+            Sort-Object Name -Descending | Select-Object -Skip 3 |
+            ForEach-Object { Remove-Item "$($_.FullName)*" -Force -ErrorAction SilentlyContinue }
+    } catch {
+        Write-Warning "Could not back up the existing database: $_"
+    }
+}
+
 # Initialize SQLite database via Prisma
 Write-Host "Initializing database..."
 $env:DATABASE_URL = $env_DATABASE_URL

@@ -280,6 +280,9 @@ begin
     Result := CliDir
   else if DataDirPage <> nil then
     Result := DataDirPage.Values[0]
+  else if RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir') <> '' then
+    // Existing install: never fall back to a default that could point at an empty folder
+    Result := RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir')
   else
     Result := ExpandConstant('{userdocs}\TaskMesh');
 end;
@@ -731,9 +734,12 @@ begin
     False, ''
   );
   DataDirPage.Add('&Data folder:');
-  // CLI /DATADIR= takes precedence over the default path.
+  // CLI /DATADIR= wins; otherwise an existing install keeps its data folder (the
+  // page is skipped then, see ShouldSkipPage); only a fresh install uses the default.
   if ExpandConstant('{param:DATADIR|}') <> '' then
     DataDirPage.Values[0] := ExpandConstant('{param:DATADIR|}')
+  else if RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir') <> '' then
+    DataDirPage.Values[0] := RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir')
   else
     DataDirPage.Values[0] := DefaultDataDir;
 
@@ -1065,6 +1071,7 @@ end;
 // ── Uninstall: ask about Ollama, then clean up extras ─────────────────────────
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
+  ExistingDataDir: String;
   TelEnabled: String;
   InstallID:  String;
   PsArgs:     String;
@@ -1072,8 +1079,22 @@ var
 begin
   if CurUninstallStep = usUninstall then begin
     RemoveOllama := False;
-    // Read DataDir before the registry key is deleted later in the uninstall sequence.
-    DataDirToRemove := RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir');
+    // Keep the user's data unless they explicitly choose to delete it: the setup page
+    // promises "This folder is not deleted when you uninstall TaskMesh", and people
+    // uninstall + reinstall to update. Silent uninstalls (including the one the
+    // update dialog's Uninstall button runs) never delete it. Read DataDir now,
+    // before the registry key is deleted later in the uninstall sequence.
+    DataDirToRemove := '';
+    ExistingDataDir := RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir');
+    if (not UninstallSilent()) and (ExistingDataDir <> '') and DirExists(ExistingDataDir) then begin
+      if MsgBox(
+           'Do you also want to permanently delete your TaskMesh data?' + #13#10 + #13#10 +
+           ExistingDataDir + #13#10 + #13#10 +
+           'This removes your boards, tasks, wiki and database. ' +
+           'Choose No to keep them, so reinstalling TaskMesh picks up where you left off.',
+           mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+        DataDirToRemove := ExistingDataDir;
+    end;
 
     // Fire uninstall telemetry before the registry key is removed.
     TelEnabled := RegGetStr(HKLM, 'Software\TaskMesh', 'TelemetryEnabled');
@@ -1231,6 +1252,15 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   if PageID = wpSelectTasks then begin
+    Result := True;
+    Exit;
+  end;
+
+  // Updates and repairs keep the existing data folder: don't offer to change it
+  // (picking a different folder would start from an empty database and a new key).
+  if (DataDirPage <> nil) and (PageID = DataDirPage.ID) and
+     (RegGetStr(HKLM, 'Software\TaskMesh', 'DataDir') <> '') and
+     (ExpandConstant('{param:DATADIR|}') = '') then begin
     Result := True;
     Exit;
   end;
