@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { prisma } from './prisma.js';
@@ -78,7 +79,14 @@ interface GitHubRelease {
   tag_name: string;
   body: string;
   published_at: string;
-  assets: Array<{ name: string; browser_download_url: string }>;
+  assets: Array<{ name: string; browser_download_url: string; digest?: string | null }>;
+}
+
+/** SHA-256 of a file, lowercase hex. */
+async function sha256File(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest('hex');
 }
 
 function detectOS(): 'windows' | 'linux' | 'docker' {
@@ -239,6 +247,15 @@ async function downloadUpdate(): Promise<void> {
 
     const writer = fs.createWriteStream(stagingPath);
     await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), writer);
+
+    // Early check against the digest GitHub publishes; the updater script that runs
+    // the installer verifies again (and holds the file locked) right before running it.
+    const expected = asset.digest?.replace(/^sha256:/, '').toLowerCase();
+    const actual = await sha256File(stagingPath);
+    if (!expected || expected !== actual) {
+      fs.rmSync(stagingPath, { force: true });
+      throw new Error(`SHA-256 mismatch for ${assetName} (expected ${expected ?? 'none'}, got ${actual})`);
+    }
   } catch (err) {
     console.error('[updateChecker] download failed:', err);
     downloading = false;
@@ -582,53 +599,18 @@ export async function applyUpdate(): Promise<void> {
       if (!preflightAsset) throw new Error(`TaskMesh-Setup.exe is missing from the v${status.latestVersion} release. The update cannot proceed — please try again later.`);
     }
 
-    // Prefer the pre-installed updater script (always present when auto-update is enabled).
+    // The bundled updater script (run as SYSTEM by the TaskMesh-ApplyUpdate task)
+    // verifies the installer's SHA-256 against the release before running it.
+    // There is deliberately no fallback that runs an installer without that check.
     const updaterScript = path.join(__dirname, '../../../updater/check-updates.ps1');
-    if (fs.existsSync(updaterScript)) {
-      const launcher = spawn('schtasks', [
-        '/Run', '/TN', 'TaskMesh-ApplyUpdate',
-      ], { detached: true, stdio: 'ignore' });
-      launcher.on('error', (err) => console.error('[applyUpdate] task trigger error:', err));
-      launcher.unref();
-      return;
+    if (!fs.existsSync(updaterScript)) {
+      throw new Error('Updater script not found. Please reinstall TaskMesh to enable in-app updates.');
     }
-
-    // Fallback: use staged file if available, otherwise download
-    const installerPath = stagedPath ?? path.join(os.tmpdir(), `TaskMesh-Setup-${status.latestVersion}.exe`);
-
-    if (!stagedPath) {
-      const release = await fetchGitHubRelease(`v${status.latestVersion}`);
-      if (!release) throw new Error('Could not fetch release details from GitHub');
-      const asset = release.assets.find(a => a.name === 'TaskMesh-Setup.exe');
-      if (!asset) throw new Error('TaskMesh-Setup.exe not found in release assets');
-
-      const script = [
-        `$url = '${asset.browser_download_url}'`,
-        `$out = '${installerPath.replace(/'/g, "''")}'`,
-        `Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing`,
-        `& sc.exe stop TaskMesh-Server`,
-        `Start-Sleep -Seconds 5`,
-        `Start-Process -FilePath $out -ArgumentList '/QUIET','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`,
-      ].join('; ');
-
-      const child = spawn('powershell.exe', [
-        '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script,
-      ], { detached: true, stdio: 'ignore' });
-      child.unref();
-      return;
-    }
-
-    // Run the staged installer directly via scheduled task approach
-    const script = [
-      `& sc.exe stop TaskMesh-Server`,
-      `Start-Sleep -Seconds 5`,
-      `Start-Process -FilePath '${installerPath.replace(/'/g, "''")}' -ArgumentList '/QUIET','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`,
-    ].join('; ');
-
-    const child = spawn('powershell.exe', [
-      '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script,
+    const launcher = spawn('schtasks', [
+      '/Run', '/TN', 'TaskMesh-ApplyUpdate',
     ], { detached: true, stdio: 'ignore' });
-    child.unref();
+    launcher.on('error', (err) => console.error('[applyUpdate] task trigger error:', err));
+    launcher.unref();
     return;
   }
 

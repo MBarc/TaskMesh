@@ -103,19 +103,17 @@ $stagedDir  = Join-Path $tempDir "taskmesh-staged"
 $stagedFile = Join-Path $stagedDir "TaskMesh-Setup-$latestVersion.exe"
 $skipCleanup = $false
 
+$asset = $response.assets | Where-Object { $_.name -eq "TaskMesh-Setup.exe" } | Select-Object -First 1
+if (-not $asset) {
+    Write-Log "TaskMesh update check: no TaskMesh-Setup.exe asset found in release $latestTag." "Warning" 6
+    exit 1
+}
+
 if (Test-Path $stagedFile) {
     Write-Log "Using pre-staged installer at $stagedFile" "Information" 5
     $installerPath = $stagedFile
     $skipCleanup   = $true
 } else {
-    # ── Find the installer asset ─────────────────────────────────────────────────
-    $asset = $response.assets | Where-Object { $_.name -eq "TaskMesh-Setup.exe" } | Select-Object -First 1
-
-    if (-not $asset) {
-        Write-Log "TaskMesh update check: no TaskMesh-Setup.exe asset found in release $latestTag." "Warning" 6
-        exit 1
-    }
-
     $downloadUrl   = $asset.browser_download_url
     $installerPath = Join-Path $tempDir "TaskMesh-Setup-$latestVersion.exe"
 
@@ -128,6 +126,29 @@ if (Test-Path $stagedFile) {
         exit 1
     }
 }
+
+# ── Verify against the SHA-256 GitHub publishes for the asset ────────────────
+# This script runs as SYSTEM and the staging folder sits in a temp directory other
+# local users can write to, so the file is opened with write/delete sharing denied:
+# it cannot be modified, replaced or renamed from the hash check until the installer
+# exits. Refuses to install when the digest is missing or does not match.
+$expectedSha = if ($asset.digest) { ($asset.digest -replace '^sha256:', '').ToLowerInvariant() } else { '' }
+try {
+    $installerLock = [System.IO.File]::Open($installerPath, 'Open', 'Read', 'Read')
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $actualSha = ([BitConverter]::ToString($sha.ComputeHash($installerLock)) -replace '-', '').ToLowerInvariant()
+    $sha.Dispose()
+} catch {
+    Write-Log "TaskMesh update check: could not open installer for verification. $_" "Error" 12
+    exit 1
+}
+if (-not $expectedSha -or $expectedSha -ne $actualSha) {
+    Write-Log "TaskMesh update refused: SHA-256 mismatch for $installerPath (expected '$expectedSha', got '$actualSha')." "Error" 12
+    $installerLock.Dispose()
+    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+Write-Log "Installer SHA-256 verified ($actualSha)."
 
 Write-Log "Download ready. Stopping TaskMesh-Server before install..." "Information" 8
 
@@ -180,9 +201,11 @@ try {
     $exitCode = $proc.ExitCode
 } catch {
     Write-Log "TaskMesh update check: failed to launch installer. $_" "Error" 9
+    $installerLock.Dispose()
     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
     exit 1
 }
+$installerLock.Dispose()
 
 # Clean up temp file (skip if it was a pre-staged file — the server manages that path)
 if (-not $skipCleanup) {
