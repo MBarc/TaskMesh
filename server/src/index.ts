@@ -33,7 +33,7 @@ import { telemetryRoutes } from './routes/telemetry.js';
 import { themeRoutes } from './routes/themes.js';
 import { sortRoutes } from './routes/sorts.js';
 import { capture, shutdown } from './lib/telemetry.js';
-import { prisma, encryptLegacyConnectorConfigs } from './lib/prisma.js';
+import { prisma, encryptLegacyCredentials } from './lib/prisma.js';
 import { backupSqlite } from './lib/dbBackup.js';
 
 const app = express();
@@ -168,10 +168,10 @@ async function start() {
 
   // Encrypt connector credentials saved by versions that stored them in plaintext
   try {
-    const n = await encryptLegacyConnectorConfigs();
-    if (n) console.log(`[crypto] Encrypted ${n} connector config(s) stored by an older version.`);
+    const n = await encryptLegacyCredentials();
+    if (n) console.log(`[crypto] Encrypted ${n} credential(s) stored in plaintext by an older version.`);
   } catch (err) {
-    console.error('[crypto] Could not encrypt stored connector configs:', (err as Error).message);
+    console.error('[crypto] Could not encrypt stored credentials:', (err as Error).message);
   }
 
   // Connector SDK — auto-discover and register connectors

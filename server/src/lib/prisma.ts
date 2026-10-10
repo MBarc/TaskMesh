@@ -85,15 +85,31 @@ export const prisma = base.$extends({
   },
 }) as unknown as PrismaClient;
 
-/** Re-save connector configs still stored in plaintext so the extension encrypts them. */
-export async function encryptLegacyConnectorConfigs(): Promise<number> {
-  const rows = await base.connectorConfig.findMany({ select: { id: true, config: true } });
+/**
+ * Encrypt credentials that versions before at-rest encryption stored in plaintext:
+ * connector configs (re-saved so the extension encrypts them) and email passwords.
+ * One unreadable row is logged and skipped rather than blocking the rest.
+ */
+export async function encryptLegacyCredentials(): Promise<number> {
   let count = 0;
-  for (const row of rows) {
-    const stored = isSqlite && typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
-    if (isEncrypted(stored)) continue;
-    await prisma.connectorConfig.update({ where: { id: row.id }, data: { config: stored as any } });
-    count++;
+  for (const row of await base.connectorConfig.findMany({ select: { id: true, config: true } })) {
+    try {
+      const stored = isSqlite && typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
+      if (isEncrypted(stored)) continue;
+      await prisma.connectorConfig.update({ where: { id: row.id }, data: { config: stored as any } });
+      count++;
+    } catch (err) {
+      console.error(`[crypto] Could not encrypt connector config "${row.id}":`, (err as Error).message);
+    }
+  }
+  for (const row of await base.emailSettings.findMany({ select: { id: true, password: true } })) {
+    if (!row.password || isEncrypted(row.password)) continue;
+    try {
+      await base.emailSettings.update({ where: { id: row.id }, data: { password: encrypt(row.password) } });
+      count++;
+    } catch (err) {
+      console.error(`[crypto] Could not encrypt email password "${row.id}":`, (err as Error).message);
+    }
   }
   return count;
 }
