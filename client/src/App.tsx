@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { useBoardStore } from './stores/boardStore';
 import { useThemeStore } from './stores/themeStore';
 import { useUiPrefsStore } from './stores/uiPrefsStore';
@@ -7,16 +7,10 @@ import { useSortStore } from './stores/sortStore';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { BoardSelector } from './components/BoardSelector';
 import { TodoTable } from './components/TodoTable';
-import { AIExtractor } from './components/AIExtractor';
 import { ThemePicker } from './components/ThemePicker';
 import { NotificationCenter } from './components/NotificationCenter';
 import { ColumnEditor } from './components/ColumnEditor';
 import { TranscriptOverlay } from './components/TranscriptOverlay';
-import { ApiKeySettings } from './components/ApiKeySettings';
-import { ApiDocsSettings } from './components/ApiDocsSettings';
-import { DocumentationPage } from './components/DocumentationPage';
-import { DocumentationTab } from './components/DocumentationTab';
-import { DocumentationSettingsPanel } from './components/DocumentationSettings';
 import { AdoPushModal } from './components/AdoPushModal';
 import { SnowPushModal } from './components/SnowPushModal';
 import { AdoImportModal } from './components/AdoImportModal';
@@ -24,16 +18,8 @@ import { SnowImportModal } from './components/SnowImportModal';
 import { EmailImportModal } from './components/EmailImportModal';
 import { EmailViewModal } from './components/EmailViewModal';
 import { DocViewerModal } from './components/DocViewerModal';
-import { CustomThemeImport } from './components/CustomThemeImport';
-import { ConnectorImport } from './components/ConnectorImport';
-import { ThemeStudio } from './components/ThemeStudio';
-import { ArchiveSettings } from './components/ArchiveSettings';
-import { LicenseSettings } from './components/LicenseSettings';
-import { PrivacySettings } from './components/PrivacySettings';
-import { UpdateSettings } from './components/UpdateSettings';
 import { UpdateCountdownModal } from './components/UpdateCountdownModal';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
-import { ArchiveBoard } from './components/ArchiveBoard';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
@@ -41,6 +27,23 @@ import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
 import { ListTodo, Sparkles, Settings, Download, Mail, Paintbrush, Key, BookOpen, Store, Palette, Plug, ChevronLeft, FileText, Upload, Trash2, Check, Wand2, Archive, ExternalLink, X, Keyboard, RotateCcw, Database, Loader2, Search, Shield, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
 import * as api from './api';
+
+// Pages and modals that only render on demand load as separate chunks, so the
+// task board doesn't pay for the wiki editor (TipTap/Turndown) or settings up front.
+const AIExtractor = lazy(() => import('./components/AIExtractor').then((m) => ({ default: m.AIExtractor })));
+const ApiKeySettings = lazy(() => import('./components/ApiKeySettings').then((m) => ({ default: m.ApiKeySettings })));
+const ApiDocsSettings = lazy(() => import('./components/ApiDocsSettings').then((m) => ({ default: m.ApiDocsSettings })));
+const DocumentationPage = lazy(() => import('./components/DocumentationPage').then((m) => ({ default: m.DocumentationPage })));
+const DocumentationTab = lazy(() => import('./components/DocumentationTab').then((m) => ({ default: m.DocumentationTab })));
+const DocumentationSettingsPanel = lazy(() => import('./components/DocumentationSettings').then((m) => ({ default: m.DocumentationSettingsPanel })));
+const CustomThemeImport = lazy(() => import('./components/CustomThemeImport').then((m) => ({ default: m.CustomThemeImport })));
+const ConnectorImport = lazy(() => import('./components/ConnectorImport').then((m) => ({ default: m.ConnectorImport })));
+const ThemeStudio = lazy(() => import('./components/ThemeStudio').then((m) => ({ default: m.ThemeStudio })));
+const ArchiveSettings = lazy(() => import('./components/ArchiveSettings').then((m) => ({ default: m.ArchiveSettings })));
+const LicenseSettings = lazy(() => import('./components/LicenseSettings').then((m) => ({ default: m.LicenseSettings })));
+const PrivacySettings = lazy(() => import('./components/PrivacySettings').then((m) => ({ default: m.PrivacySettings })));
+const UpdateSettings = lazy(() => import('./components/UpdateSettings').then((m) => ({ default: m.UpdateSettings })));
+const ArchiveBoard = lazy(() => import('./components/ArchiveBoard').then((m) => ({ default: m.ArchiveBoard })));
 
 // Static pages + dynamic connector pages (connector:{id} or connector:{id}:{instanceId})
 type SettingsPage = string;
@@ -419,7 +422,11 @@ function App() {
 
   // Full-screen Documentation Page takes over the whole layout
   if (documentationPage) {
-    return <DocumentationPage />;
+    return (
+      <Suspense fallback={null}>
+        <DocumentationPage />
+      </Suspense>
+    );
   }
 
   return (
@@ -490,6 +497,7 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
+        <Suspense fallback={null}>
         {activeTab === 'tasks' && isArchiveView && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1162,6 +1170,7 @@ function App() {
             </div>
           </div>
         )}
+        </Suspense>
       </main>
 
       {/* Column Editor Modal */}
@@ -1213,15 +1222,19 @@ function App() {
 
       {/* Custom Theme Import Modal */}
       {showThemeImport && (
-        <CustomThemeImport onClose={() => setShowThemeImport(false)} />
+        <Suspense fallback={null}>
+          <CustomThemeImport onClose={() => setShowThemeImport(false)} />
+        </Suspense>
       )}
 
       {/* Connector Import Modal */}
       {showConnectorImport && (
-        <ConnectorImport
-          onClose={() => setShowConnectorImport(false)}
-          onSuccess={refreshConnectors}
-        />
+        <Suspense fallback={null}>
+          <ConnectorImport
+            onClose={() => setShowConnectorImport(false)}
+            onSuccess={refreshConnectors}
+          />
+        </Suspense>
       )}
 
       {/* Update countdown warning modal */}
