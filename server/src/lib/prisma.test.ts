@@ -2,7 +2,31 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { JSON_FIELDS, encodeFields, decodeFields } from './prisma.js';
+import { JSON_FIELDS, encodeFields, decodeFields, encryptFields, decryptFields } from './prisma.js';
+import { encrypt } from './crypto.js';
+
+test('connector config encrypts at rest and fails closed without a key', () => {
+  const saved = process.env.TASKMESH_ENCRYPTION_KEY;
+  process.env.TASKMESH_ENCRYPTION_KEY = 'a'.repeat(64);
+  try {
+    const row: any = { config: { pat: 'secret-token', _oauth: { accessToken: 'at' } } };
+    encryptFields(['config'], row);
+    assert.match(row.config, /^enc:/);
+    assert.ok(!row.config.includes('secret-token'));
+    decryptFields(['config'], row);
+    assert.deepEqual(row.config, { pat: 'secret-token', _oauth: { accessToken: 'at' } });
+
+    const legacy: any = { config: { pat: 'plain' } }; // written before encryption existed
+    decryptFields(['config'], legacy);
+    assert.deepEqual(legacy.config, { pat: 'plain' });
+
+    delete process.env.TASKMESH_ENCRYPTION_KEY;
+    assert.throws(() => encrypt('x'), /refusing to store credentials unencrypted/);
+  } finally {
+    if (saved === undefined) delete process.env.TASKMESH_ENCRYPTION_KEY;
+    else process.env.TASKMESH_ENCRYPTION_KEY = saved;
+  }
+});
 
 test('JSON_FIELDS matches every Json field in schema.prisma', () => {
   const schema = fs.readFileSync(path.join(__dirname, '../../prisma/schema.prisma'), 'utf8');

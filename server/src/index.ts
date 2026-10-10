@@ -33,7 +33,7 @@ import { telemetryRoutes } from './routes/telemetry.js';
 import { themeRoutes } from './routes/themes.js';
 import { sortRoutes } from './routes/sorts.js';
 import { capture, shutdown } from './lib/telemetry.js';
-import { prisma } from './lib/prisma.js';
+import { prisma, encryptLegacyConnectorConfigs } from './lib/prisma.js';
 import { backupSqlite } from './lib/dbBackup.js';
 
 const app = express();
@@ -165,6 +165,14 @@ async function start() {
   // Ensure the SQLite schema is current before any Prisma operations.
   // Adds missing columns to existing databases from older installer versions.
   await runSchemaMigration();
+
+  // Encrypt connector credentials saved by versions that stored them in plaintext
+  try {
+    const n = await encryptLegacyConnectorConfigs();
+    if (n) console.log(`[crypto] Encrypted ${n} connector config(s) stored by an older version.`);
+  } catch (err) {
+    console.error('[crypto] Could not encrypt stored connector configs:', (err as Error).message);
+  }
 
   // Connector SDK — auto-discover and register connectors
   const manifests = await registerAllConnectors(app, prisma);
