@@ -193,6 +193,18 @@ async function scheduleAutoApply(): Promise<void> {
   }, applyMs);
 }
 
+/**
+ * Where downloaded updates are staged: inside the install directory (Program Files /
+ * /opt — admin/root-only), never a shared temp dir where a local user could pre-create
+ * the folder or plant a link for this SYSTEM/root process to write through. The
+ * updater scripts read from the same place.
+ */
+function stagingDirFor(os_type: 'windows' | 'linux'): string {
+  return os_type === 'windows'
+    ? path.resolve(__dirname, '../../../updater/staged')
+    : path.join(getLinuxInstallDir(), 'staged');
+}
+
 let downloading = false;
 
 async function downloadUpdate(): Promise<void> {
@@ -209,7 +221,10 @@ async function downloadUpdate(): Promise<void> {
       where: { id: 'singleton' },
       select: { updateStagedVersion: true, updateStagedPath: true },
     });
-    if (settings?.updateStagedVersion === version && settings.updateStagedPath && fs.existsSync(settings.updateStagedPath)) {
+    // Only reuse a file in the current staging dir; versions before 0.0.39 staged in
+    // a temp dir the updater script no longer reads from.
+    if (settings?.updateStagedVersion === version && settings.updateStagedPath &&
+        path.dirname(settings.updateStagedPath) === stagingDirFor(os_type) && fs.existsSync(settings.updateStagedPath)) {
       status.stagedVersion = version;
       await scheduleAutoApply();
       return;
@@ -225,13 +240,8 @@ async function downloadUpdate(): Promise<void> {
   const asset = release.assets.find(a => a.name === assetName);
   if (!asset) return;
 
-  // Stage inside the install directory (Program Files / /opt — admin/root-only),
-  // never a shared temp dir where a local user could pre-create the folder or plant
-  // a link for this SYSTEM/root process to write through. The updater scripts read
-  // from the same place. Older staged versions are cleared first.
-  const stagingDir = os_type === 'windows'
-    ? path.join(__dirname, '../../../updater/staged')
-    : path.join(getLinuxInstallDir(), 'staged');
+  // Older staged versions are cleared first.
+  const stagingDir = stagingDirFor(os_type);
   try {
     fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
