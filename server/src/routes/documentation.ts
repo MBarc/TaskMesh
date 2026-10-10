@@ -58,15 +58,25 @@ function realpathOfExisting(p: string): string {
  * ponytail: check-then-use, so a link swapped in between can still race it; running
  * the service as an unprivileged account removes the race entirely.
  */
+/** True if `p` or any existing folder above it is a symlink or junction. */
+function hasLinkInPath(p: string): boolean {
+  let cur = path.resolve(p);
+  for (;;) {
+    try { if (fs.lstatSync(cur).isSymbolicLink()) return true; } catch { /* not created yet */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) return false;
+    cur = parent;
+  }
+}
+
 export function contained(p: string, root = getDocPath()): string {
   let ok = false;
   try {
     // The root itself and every folder above it must be real directories too:
     // otherwise replacing e.g. Documents\TaskMesh\documentation with a junction
     // would silently move the whole wiki (and every SYSTEM write) elsewhere.
-    const rootReal = realpathOfExisting(root);
-    const norm = (s: string) => (process.platform === 'win32' ? s.toLowerCase() : s);
-    ok = norm(rootReal) === norm(path.resolve(root)) && isInside(rootReal, realpathOfExisting(p));
+    // (Checked per component with lstat, so 8.3 names and case differences pass.)
+    ok = !hasLinkInPath(root) && isInside(realpathOfExisting(root), realpathOfExisting(p));
   } catch { /* unresolvable link */ }
   if (!ok) throw new Error(`Refusing wiki path outside the documentation root (or the root path contains a link): ${p}`);
   return p;
@@ -422,6 +432,10 @@ router.post('/wiki/folders', async (req, res) => {
       }
     }
 
+    // Resolve (and validate) the on-disk path before writing the row, so a refused
+    // path doesn't leave a folder in the database without one on disk.
+    const fsPath = await getFolderFsPath({ name: name.trim(), parentFolderId: parentFolderId || null, boardId });
+
     const folder = await prisma.documentationFolder.create({
       data: { boardId, name: name.trim(), parentFolderId: parentFolderId || null },
       include: {
@@ -432,7 +446,6 @@ router.post('/wiki/folders', async (req, res) => {
       },
     });
 
-    const fsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId });
     fsTry('create folder', () => fs.mkdirSync(fsPath, { recursive: true }));
 
     res.json(folder);
@@ -569,11 +582,13 @@ router.post('/wiki/files', async (req, res) => {
       return res.status(400).json({ error: 'boardId and name are required' });
     }
 
+    // Validate the on-disk path before writing the row (see folder create).
+    const fsPath = await getFileFsPath({ name: name.trim(), folderId: folderId || null, boardId });
+
     const file = await prisma.documentationFile.create({
       data: { boardId, name: name.trim(), folderId: folderId || null, content: content || '' },
     });
 
-    const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
     fsTry('create file', () => {
       fs.mkdirSync(path.dirname(fsPath), { recursive: true });
       fs.writeFileSync(fsPath, content || '', 'utf-8');

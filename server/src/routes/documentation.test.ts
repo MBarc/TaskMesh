@@ -37,6 +37,11 @@ test('contained() refuses everything when the wiki root (or a parent) is itself 
     fs.mkdirSync(realRoot);
     assert.ok(contained(path.join(realRoot, 'x.md'), realRoot));
     assert.throws(() => contained(path.join(tmp, 'linked-parent', 'real-docs', 'x.md'), path.join(tmp, 'linked-parent', 'real-docs')));
+    // an 8.3 short name or different case is not a link
+    if (process.platform === 'win32' && fs.existsSync('C:\\PROGRA~1')) {
+      assert.ok(contained('C:\\PROGRA~1\\x.md', 'C:\\PROGRA~1'));
+      assert.ok(contained(path.join(realRoot.toUpperCase(), 'x.md'), realRoot.toUpperCase()));
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
