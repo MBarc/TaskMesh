@@ -178,12 +178,12 @@ export async function storeOAuthTokens(
   instanceId?: string,
 ): Promise<void> {
   const id = configRowId(connectorId, instanceId);
-  const existing = await (prisma as any).connectorConfig.findUnique({ where: { id } });
+  const existing = await prisma.connectorConfig.findUnique({ where: { id } });
   const existingConfig: Record<string, any> = (existing?.config as Record<string, any>) ?? {};
 
-  const newConfig = { ...existingConfig, _oauth: tokens };
+  const newConfig: Record<string, any> = { ...existingConfig, _oauth: tokens };
 
-  await (prisma as any).connectorConfig.upsert({
+  await prisma.connectorConfig.upsert({
     where: { id },
     update: { config: newConfig },
     create: {
@@ -202,7 +202,7 @@ export async function getStoredOAuthTokens(
   instanceId?: string,
 ): Promise<OAuthTokens | null> {
   const id = configRowId(connectorId, instanceId);
-  const row = await (prisma as any).connectorConfig.findUnique({ where: { id } });
+  const row = await prisma.connectorConfig.findUnique({ where: { id } });
   if (!row) return null;
   const config = (row.config as Record<string, any>) ?? {};
   return (config._oauth as OAuthTokens) ?? null;
@@ -214,11 +214,11 @@ export async function clearOAuthTokens(
   instanceId?: string,
 ): Promise<void> {
   const id = configRowId(connectorId, instanceId);
-  const row = await (prisma as any).connectorConfig.findUnique({ where: { id } });
+  const row = await prisma.connectorConfig.findUnique({ where: { id } });
   if (!row) return;
   const config = { ...(row.config as Record<string, any>) ?? {} };
   delete config._oauth;
-  await (prisma as any).connectorConfig.update({ where: { id }, data: { config } });
+  await prisma.connectorConfig.update({ where: { id }, data: { config } });
 }
 
 // ──────────────────────────────────────────────
@@ -240,7 +240,7 @@ export async function getValidAccessToken(
   if (tokens.expiresAt && tokens.expiresAt - Date.now() < EXPIRY_BUFFER_MS) {
     if (tokens.refreshToken && manifest.oauth) {
       const id = configRowId(manifest.id, instanceId);
-      const row = await (prisma as any).connectorConfig.findUnique({ where: { id } });
+      const row = await prisma.connectorConfig.findUnique({ where: { id } });
       const config = (row?.config as Record<string, any>) ?? {};
       const clientId: string = config.clientId;
       const clientSecret: string = config.clientSecret;
