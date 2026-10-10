@@ -296,8 +296,10 @@ const handlers: ConnectorHandlers = {
       try {
         const { taskId, columnId, replyAll, body } = req.body;
 
-        if (!taskId || !columnId || !body) {
-          return res.status(400).json({ error: 'taskId, columnId, and body are required' });
+        // body must be plain text: nodemailer treats an object like { path } as a file
+        // to attach, which would let a caller mail out any file the service can read.
+        if (!taskId || !columnId || typeof body !== 'string' || !body) {
+          return res.status(400).json({ error: 'taskId, columnId, and a text body are required' });
         }
 
         const cellValue = await prisma.cellValue.findUnique({
@@ -335,6 +337,9 @@ const handlers: ConnectorHandlers = {
             user: settings.username,
             pass: decrypt(settings.password),
           },
+        }, {
+          disableFileAccess: true, // never read local files or fetch URLs into a message
+          disableUrlAccess: true,
         });
 
         const toAddresses = replyAll
