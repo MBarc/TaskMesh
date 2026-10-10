@@ -1,5 +1,4 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { createHash } from 'crypto';
@@ -226,9 +225,16 @@ async function downloadUpdate(): Promise<void> {
   const asset = release.assets.find(a => a.name === assetName);
   if (!asset) return;
 
-  const stagingDir = path.join(os.tmpdir(), 'taskmesh-staged');
+  // Stage inside the install directory (Program Files / /opt — admin/root-only),
+  // never a shared temp dir where a local user could pre-create the folder or plant
+  // a link for this SYSTEM/root process to write through. The updater scripts read
+  // from the same place. Older staged versions are cleared first.
+  const stagingDir = os_type === 'windows'
+    ? path.join(__dirname, '../../../updater/staged')
+    : path.join(getLinuxInstallDir(), 'staged');
   try {
-    if (!fs.existsSync(stagingDir)) fs.mkdirSync(stagingDir, { recursive: true });
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
   } catch {
     return;
   }
@@ -245,7 +251,7 @@ async function downloadUpdate(): Promise<void> {
     clearTimeout(timer);
     if (!response.ok || !response.body) throw new Error('Download response not ok');
 
-    const writer = fs.createWriteStream(stagingPath);
+    const writer = fs.createWriteStream(stagingPath, { flags: 'wx' }); // never write through an existing file/link
     await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), writer);
 
     // Early check against the digest GitHub publishes; the updater script that runs

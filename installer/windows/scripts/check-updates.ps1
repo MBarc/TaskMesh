@@ -97,41 +97,40 @@ if ($latest -le $installed) {
 
 Write-Log "TaskMesh update available: $installedVersion -> $latestVersion." "Information" 5
 
-# ── Check for a pre-staged installer (downloaded by the server in the background) ──
-$tempDir    = [System.IO.Path]::GetTempPath()
-$stagedDir  = Join-Path $tempDir "taskmesh-staged"
-$stagedFile = Join-Path $stagedDir "TaskMesh-Setup-$latestVersion.exe"
-$skipCleanup = $false
-
+# This script runs as SYSTEM, so it only ever executes a private copy in a fresh
+# folder under its own directory ({app}\updater, admin-only), never a file in a
+# shared temp dir that a local user could pre-create, link or swap.
 $asset = $response.assets | Where-Object { $_.name -eq "TaskMesh-Setup.exe" } | Select-Object -First 1
 if (-not $asset) {
     Write-Log "TaskMesh update check: no TaskMesh-Setup.exe asset found in release $latestTag." "Warning" 6
     exit 1
 }
 
+$workDir       = Join-Path $PSScriptRoot ("work-" + [guid]::NewGuid().ToString('N'))
+$installerPath = Join-Path $workDir "TaskMesh-Setup.exe"
+New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+
+# Pre-staged by the server in the background ({app}\updater\staged)
+$stagedFile = Join-Path $PSScriptRoot "staged\TaskMesh-Setup-$latestVersion.exe"
 if (Test-Path $stagedFile) {
     Write-Log "Using pre-staged installer at $stagedFile" "Information" 5
-    $installerPath = $stagedFile
-    $skipCleanup   = $true
+    Copy-Item $stagedFile $installerPath
 } else {
-    $downloadUrl   = $asset.browser_download_url
-    $installerPath = Join-Path $tempDir "TaskMesh-Setup-$latestVersion.exe"
-
+    $downloadUrl = $asset.browser_download_url
     Write-Log "Downloading $downloadUrl to $installerPath..."
-
     try {
         Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
     } catch {
         Write-Log "TaskMesh update check: download failed. $_" "Error" 7
+        Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
         exit 1
     }
 }
 
 # ── Verify against the SHA-256 GitHub publishes for the asset ────────────────
-# This script runs as SYSTEM and the staging folder sits in a temp directory other
-# local users can write to, so the file is opened with write/delete sharing denied:
-# it cannot be modified, replaced or renamed from the hash check until the installer
-# exits. Refuses to install when the digest is missing or does not match.
+# The private copy is opened with write/delete sharing denied, so it cannot be
+# modified, replaced or renamed from the hash check until the installer exits.
+# Refuses to install when the digest is missing or does not match.
 $expectedSha = if ($asset.digest) { ($asset.digest -replace '^sha256:', '').ToLowerInvariant() } else { '' }
 try {
     $installerLock = [System.IO.File]::Open($installerPath, 'Open', 'Read', 'Read')
@@ -140,12 +139,14 @@ try {
     $sha.Dispose()
 } catch {
     Write-Log "TaskMesh update check: could not open installer for verification. $_" "Error" 12
+    Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
     exit 1
 }
 if (-not $expectedSha -or $expectedSha -ne $actualSha) {
     Write-Log "TaskMesh update refused: SHA-256 mismatch for $installerPath (expected '$expectedSha', got '$actualSha')." "Error" 12
     $installerLock.Dispose()
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $stagedFile -Force -ErrorAction SilentlyContinue
     exit 1
 }
 Write-Log "Installer SHA-256 verified ($actualSha)."
@@ -202,15 +203,11 @@ try {
 } catch {
     Write-Log "TaskMesh update check: failed to launch installer. $_" "Error" 9
     $installerLock.Dispose()
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
     exit 1
 }
 $installerLock.Dispose()
-
-# Clean up temp file (skip if it was a pre-staged file — the server manages that path)
-if (-not $skipCleanup) {
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-}
+Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Log "Installer exited with code $exitCode." "Information" 10
 

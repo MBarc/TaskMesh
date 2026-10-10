@@ -87,7 +87,7 @@ fi
 
 # ── Check for a pre-staged archive (downloaded by the server in the background) ──
 
-STAGED_FILE="/tmp/taskmesh-staged/TaskMesh-Installer-${LATEST_VERSION}.tar.gz"
+STAGED_FILE="${INSTALL_DIR}/staged/TaskMesh-Installer-${LATEST_VERSION}.tar.gz"  # root-only, written by the server
 
 # Work in a private (0700, root-owned) directory: the staged copy in /tmp is
 # copied in first and verified there, so nothing can swap it after the check.
