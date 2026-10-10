@@ -24,8 +24,17 @@ const getDocPath = () => process.env.DOCUMENTATION_PATH || '/wiki';
 
 // ── Filesystem sync helpers ────────────────────────────────────────────────
 
-function sanitizeFsName(name: string): string {
-  return (name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()) || '_';
+// Board, folder and file names become path segments. Separators are replaced, and
+// dot-only names ("." / "..") would step out of the wiki root, so they become "_".
+export function sanitizeFsName(name: string): string {
+  const safe = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
+  return !safe || /^\.+$/.test(safe) ? '_' : safe;
+}
+
+/** True when `target` resolves to `base` itself or somewhere beneath it. */
+export function isInside(base: string, target: string): boolean {
+  const rel = path.relative(path.resolve(base), path.resolve(target));
+  return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
 async function getBoardFsRoot(boardId: string): Promise<string> {
@@ -305,10 +314,7 @@ router.post('/read-document', async (req, res) => {
       return res.status(400).json({ error: 'filePath is required' });
     }
 
-    const normalizedFilePath = path.normalize(filePath);
-    const normalizedBasePath = path.normalize(getDocPath());
-
-    if (!normalizedFilePath.startsWith(normalizedBasePath)) {
+    if (!isInside(getDocPath(), filePath)) {
       return res.status(403).json({ error: 'Access denied: file is outside base path' });
     }
 
