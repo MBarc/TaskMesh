@@ -1,7 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { sanitizeFsName, isInside } from './documentation.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import { sanitizeFsName, isInside, contained } from './documentation.js';
+
+test('contained() refuses paths that a link inside the wiki redirects outside', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-wiki-'));
+  const root = path.join(tmp, 'wiki');
+  const outside = path.join(tmp, 'outside');
+  fs.mkdirSync(path.join(root, 'board'), { recursive: true });
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(root, 'board', 'evil'), 'junction'); // no admin needed on Windows
+  try {
+    assert.equal(contained(path.join(root, 'board', 'notes.md'), root), path.join(root, 'board', 'notes.md'));
+    assert.ok(contained(path.join(root, 'new-board', 'sub', 'x.md'), root)); // not created yet: fine
+    assert.throws(() => contained(path.join(root, 'board', 'evil'), root));
+    assert.throws(() => contained(path.join(root, 'board', 'evil', 'x.md'), root));
+    assert.throws(() => contained(path.join(root, 'board', 'evil', 'deeper', 'x.md'), root));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
 
 test('sanitizeFsName never yields a segment that leaves its parent', () => {
   for (const evil of ['..', '.', '...', ' .. ', '../x', '..\\x', 'a/b', '']) {

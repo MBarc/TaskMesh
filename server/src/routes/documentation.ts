@@ -37,28 +37,56 @@ export function isInside(base: string, target: string): boolean {
   return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
+/** `p` with symlinks/junctions resolved in the deepest part of it that exists. */
+function realpathOfExisting(p: string): string {
+  let cur = path.resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    try { fs.lstatSync(cur); break; } catch { /* doesn't exist yet */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    rest.unshift(path.basename(cur));
+    cur = parent;
+  }
+  return path.join(fs.realpathSync.native(cur), ...rest); // throws on a dangling link
+}
+
+/**
+ * Returns `p` if it stays inside the wiki root once links are resolved; throws
+ * otherwise. The wiki lives in a user-writable folder while the server may run as
+ * SYSTEM, so a junction planted inside it must not redirect reads, writes or deletes.
+ * ponytail: check-then-use, so a link swapped in between can still race it; running
+ * the service as an unprivileged account removes the race entirely.
+ */
+export function contained(p: string, root = getDocPath()): string {
+  let ok = false;
+  try { ok = isInside(realpathOfExisting(root), realpathOfExisting(p)); } catch { /* unresolvable link */ }
+  if (!ok) throw new Error(`Refusing wiki path outside the documentation root: ${p}`);
+  return p;
+}
+
 async function getBoardFsRoot(boardId: string): Promise<string> {
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
-  return path.join(getDocPath(), board ? sanitizeFsName(board.name) : sanitizeFsName(boardId));
+  return contained(path.join(getDocPath(), board ? sanitizeFsName(board.name) : sanitizeFsName(boardId)));
 }
 
 async function getFolderFsPath(folder: { name: string; parentFolderId: string | null; boardId: string }): Promise<string> {
   const base = await getBoardFsRoot(folder.boardId);
   const safeName = sanitizeFsName(folder.name);
-  if (!folder.parentFolderId) return path.join(base, safeName);
+  if (!folder.parentFolderId) return contained(path.join(base, safeName));
   const parent = await prisma.documentationFolder.findUnique({ where: { id: folder.parentFolderId }, select: { name: true } });
-  return path.join(base, parent ? sanitizeFsName(parent.name) : folder.parentFolderId, safeName);
+  return contained(path.join(base, parent ? sanitizeFsName(parent.name) : folder.parentFolderId, safeName));
 }
 
 async function getFileFsPath(file: { name: string; folderId: string | null; boardId: string }): Promise<string> {
   const base = await getBoardFsRoot(file.boardId);
   const raw = sanitizeFsName(file.name);
   const safeName = raw.toLowerCase().endsWith('.md') ? raw : `${raw}.md`;
-  if (!file.folderId) return path.join(base, safeName);
+  if (!file.folderId) return contained(path.join(base, safeName));
   const folder = await prisma.documentationFolder.findUnique({ where: { id: file.folderId }, select: { name: true, parentFolderId: true } });
-  if (!folder) return path.join(base, safeName);
+  if (!folder) return contained(path.join(base, safeName));
   const folderPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: file.boardId });
-  return path.join(folderPath, safeName);
+  return contained(path.join(folderPath, safeName));
 }
 
 function fsTry(label: string, fn: () => void): void {
@@ -314,7 +342,7 @@ router.post('/read-document', async (req, res) => {
       return res.status(400).json({ error: 'filePath is required' });
     }
 
-    if (!isInside(getDocPath(), filePath)) {
+    try { contained(filePath); } catch {
       return res.status(403).json({ error: 'Access denied: file is outside base path' });
     }
 
