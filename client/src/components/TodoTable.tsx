@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   useReactTable,
   getCoreRowModel,
@@ -45,7 +46,7 @@ function isColumnCompleted(columnType: ColumnType, cellValue: string | undefined
 }
 
 export function TodoTable() {
-  const { currentBoard, addTask, deleteTask, updateTask, updateTaskNotes, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, highlightedTaskId, setHighlightedTaskId } = useBoardStore();
+  const { currentBoard, addTask, deleteTask, updateTask, updateTaskNotes, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, highlightedTaskId, setHighlightedTaskId } = useBoardStore(useShallow(({ currentBoard, addTask, deleteTask, updateTask, updateTaskNotes, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, highlightedTaskId, setHighlightedTaskId }) => ({ currentBoard, addTask, deleteTask, updateTask, updateTaskNotes, reorderTasks, reorderColumns, bulkCreateTasks, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, highlightedTaskId, setHighlightedTaskId })));
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ taskId: string; incompleteColumns: { name: string; type: ColumnType }[] } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
@@ -72,7 +73,7 @@ export function TodoTable() {
   const [keyboardColDrag, setKeyboardColDrag] = useState<{ fromIndex: number; currentIndex: number } | null>(null);
 
   const showNewBadge = useUiPrefsStore((s) => s.showNewBadge);
-  const { boardSorts, toggleSort, clearSort } = useSortStore();
+  const { boardSorts, toggleSort, clearSort } = useSortStore(useShallow(({ boardSorts, toggleSort, clearSort }) => ({ boardSorts, toggleSort, clearSort })));
   const columns = currentBoard?.columns || [];
   const tasks = currentBoard?.tasks || [];
   const activeSorts = currentBoard ? (boardSorts[currentBoard.id] || []) : [];
@@ -640,27 +641,9 @@ export function TodoTable() {
   const tableColumns = useMemo<ColumnDef<Record<string, string>>[]>(() => {
     const cols: ColumnDef<Record<string, string>>[] = [
       {
-        id: 'drag',
+        id: 'drag', // rendered directly in the table body
         header: '',
         size: 40,
-        cell: ({ row }) => {
-          const createdAt = row.original._createdAt;
-          const isNew = createdAt && (Date.now() - new Date(createdAt).getTime()) < 24 * 60 * 60 * 1000;
-          return (
-            <div
-              className="flex items-center gap-1 text-text-muted cursor-grab active:cursor-grabbing"
-              onMouseDown={() => { dragFromGrip.current = true; }}
-              onMouseUp={() => { dragFromGrip.current = false; }}
-            >
-              <GripVertical className="w-4 h-4 shrink-0" />
-              {isNew && showNewBadge && (
-                <span className="px-1 py-px text-[9px] font-bold leading-none rounded-sm text-white shadow-sm" style={{ backgroundColor: '#e8590c' }}>
-                  New
-                </span>
-              )}
-            </div>
-          );
-        },
       },
     ];
 
@@ -925,43 +908,13 @@ export function TodoTable() {
     });
 
     cols.push({
-      id: 'actions',
+      id: 'actions', // rendered directly in the table body
       header: '',
       size: 96,
-      cell: ({ row }) => {
-        const taskId = row.original.id;
-        const notes = row.original._notes || '';
-        const hasNotes = notes.length > 0;
-        return (
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={(e) => handleNotesOpen(e, taskId, notes)}
-              title="Notes"
-              className={`p-1 rounded hover:bg-surface-tertiary ${notesOpenTaskId === taskId ? 'text-primary-500' : hasNotes ? 'text-primary-400' : 'text-text-muted hover:text-primary-500'}`}
-            >
-              <StickyNote className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleDuplicateTask(row.original.id)}
-              title="Duplicate row"
-              className="p-1 text-text-muted hover:text-primary-500 rounded hover:bg-surface-tertiary"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleDeleteTask(row.original.id)}
-              title="Delete row"
-              className="p-1 text-text-muted hover:text-red-500 rounded hover:bg-surface-tertiary"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        );
-      },
     });
 
     return cols;
-  }, [columns, editingCell, updateTask, handleDeleteTask, handleDuplicateTask, handleNotesOpen, notesOpenTaskId, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, openDocViewerModal, currentBoard, showNewBadge]);
+  }, [columns, editingCell, updateTask, openTranscriptOverlay, openAdoPushModal, openSnowPushModal, openEmailViewModal, openDocumentationPage, currentBoard]);
 
   const table = useReactTable({
     data,

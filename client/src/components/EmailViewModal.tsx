@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Reply } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -6,7 +7,7 @@ import type { EmailThreadMessage } from '../types';
 import { EmailReplyModal } from './EmailReplyModal';
 
 export function EmailViewModal() {
-  const { emailViewModal, closeEmailViewModal } = useBoardStore();
+  const { emailViewModal, closeEmailViewModal } = useBoardStore(useShallow(({ emailViewModal, closeEmailViewModal }) => ({ emailViewModal, closeEmailViewModal })));
   const [thread, setThread] = useState<EmailThreadMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [showReply, setShowReply] = useState(false);

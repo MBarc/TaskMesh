@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Archive, RotateCcw, Trash2, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useArchiveStore } from '../stores/archiveStore';
 import type { ArchivedTask } from '../types';
@@ -19,7 +20,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function ArchiveBoard() {
-  const { groups, loading, error, fetchArchivedTasks, restoreTask, deleteTask } = useArchiveStore();
+  const { groups, loading, error, fetchArchivedTasks, restoreTask, deleteTask } = useArchiveStore(useShallow(({ groups, loading, error, fetchArchivedTasks, restoreTask, deleteTask }) => ({ groups, loading, error, fetchArchivedTasks, restoreTask, deleteTask })));
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [restoringIds, setRestoringIds] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<ArchivedTask | null>(null);

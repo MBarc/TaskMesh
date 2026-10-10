@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { ArrowLeft, Loader2, Check, Sparkles, Type, FileText, HelpCircle } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -36,7 +37,7 @@ turndownService.addRule('taskListItem', {
 });
 
 export function DocumentationPage() {
-  const { documentationPage, closeDocumentationPage, currentBoard } = useBoardStore();
+  const { documentationPage, closeDocumentationPage, currentBoard } = useBoardStore(useShallow(({ documentationPage, closeDocumentationPage, currentBoard }) => ({ documentationPage, closeDocumentationPage, currentBoard })));
   const [markdown, setMarkdown] = useState('');
   const [fileName, setFileName] = useState('');
   const [submitting, setSubmitting] = useState(false);

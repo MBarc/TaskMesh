@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { X, Copy, Check, Loader2 } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
 
 export function DocViewerModal() {
-  const { docViewerModal, closeDocViewerModal } = useBoardStore();
+  const { docViewerModal, closeDocViewerModal } = useBoardStore(useShallow(({ docViewerModal, closeDocViewerModal }) => ({ docViewerModal, closeDocViewerModal })));
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

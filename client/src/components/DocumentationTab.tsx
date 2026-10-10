@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   FileText, Folder, FolderOpen, ChevronRight, ChevronDown, Search,
   Plus, Trash2, Edit2, FolderPlus, X, Pencil, Copy, Lock, Info,
@@ -79,7 +80,7 @@ function folderMatchesSearch(folder: DocFolder, q: string): boolean {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function DocumentationTab() {
-  const { currentBoard } = useBoardStore();
+  const { currentBoard } = useBoardStore(useShallow(({ currentBoard }) => ({ currentBoard })));
 
   const [tree, setTree] = useState<DocTree | null>(null);
   const [loading, setLoading] = useState(false);

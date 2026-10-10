@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { X, Plus, Trash2, GripVertical, Plug, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import type { ColumnAlignment } from '../types';
 import { useBoardStore } from '../stores/boardStore';
@@ -54,14 +55,7 @@ const TYPE_LABELS: Partial<Record<ColumnType, string>> = {
 };
 
 export function ColumnEditor({ onClose }: ColumnEditorProps) {
-  const {
-    currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns,
-    ensureAdoColumn, removeAdoColumn,
-    ensureItemNoColumn, removeItemNoColumn,
-    ensureSnowPushColumn, removeSnowPushColumn,
-    ensureEmailColumn, removeEmailColumn,
-    ensureDocumentationColumn, removeDocumentationColumn,
-  } = useBoardStore();
+  const { currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn } = useBoardStore(useShallow(({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn }) => ({ currentBoard, addColumn, updateColumn, deleteColumn, reorderColumns, ensureAdoColumn, removeAdoColumn, ensureItemNoColumn, removeItemNoColumn, ensureSnowPushColumn, removeSnowPushColumn, ensureEmailColumn, removeEmailColumn, ensureDocumentationColumn, removeDocumentationColumn })));
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { X, Loader2 } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -53,7 +54,7 @@ function highlightText(text: string, keywords: string[]): HighlightSegment[] {
 }
 
 export function TranscriptOverlay() {
-  const { transcriptOverlay, closeTranscriptOverlay } = useBoardStore();
+  const { transcriptOverlay, closeTranscriptOverlay } = useBoardStore(useShallow(({ transcriptOverlay, closeTranscriptOverlay }) => ({ transcriptOverlay, closeTranscriptOverlay })));
   const [sourceText, setSourceText] = useState('');
   const [platform, setPlatform] = useState<Platform>(transcriptOverlay?.platform ?? 'unknown');
   const [loading, setLoading] = useState(false);

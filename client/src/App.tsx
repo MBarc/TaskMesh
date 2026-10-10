@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useBoardStore } from './stores/boardStore';
 import { useThemeStore } from './stores/themeStore';
 import { useUiPrefsStore } from './stores/uiPrefsStore';
@@ -133,7 +134,7 @@ function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [activeSettingsPage, setActiveSettingsPage] = useState<SettingsPage>('appearance');
-  const { currentBoard, boards, isArchiveView, fetchBoards, fetchBoard, addTask, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard, favoriteBoardDeletedNotice, clearFavoriteBoardDeletedNotice, setHighlightedTaskId } = useBoardStore();
+  const { currentBoard, boards, isArchiveView, fetchBoards, fetchBoard, addTask, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard, favoriteBoardDeletedNotice, clearFavoriteBoardDeletedNotice, setHighlightedTaskId } = useBoardStore(useShallow(({ currentBoard, boards, isArchiveView, fetchBoards, fetchBoard, addTask, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard, favoriteBoardDeletedNotice, clearFavoriteBoardDeletedNotice, setHighlightedTaskId }) => ({ currentBoard, boards, isArchiveView, fetchBoards, fetchBoard, addTask, openAdoImportModal, openSnowImportModal, openEmailImportModal, emailImportModal, documentationPage, updateBoard, favoriteBoardDeletedNotice, clearFavoriteBoardDeletedNotice, setHighlightedTaskId })));
   const [isEditingBoardName, setIsEditingBoardName] = useState(false);
   const [editBoardName, setEditBoardName] = useState('');
   const [showThemeImport, setShowThemeImport] = useState(false);

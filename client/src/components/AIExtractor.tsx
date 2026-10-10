@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Upload, FileText, Loader2, Check, X, Sparkles, Download, RefreshCw, AlertCircle } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -35,7 +36,7 @@ function formatElapsed(startIso: string): string {
 }
 
 export function AIExtractor() {
-  const { currentBoard, bulkCreateTasks, ensureSourceColumn } = useBoardStore();
+  const { currentBoard, bulkCreateTasks, ensureSourceColumn } = useBoardStore(useShallow(({ currentBoard, bulkCreateTasks, ensureSourceColumn }) => ({ currentBoard, bulkCreateTasks, ensureSourceColumn })));
   const [activeTab, setActiveTab] = useState<Tab>('notes');
 
   // Notes tab state

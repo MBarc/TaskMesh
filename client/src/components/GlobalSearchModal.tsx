@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { X, Search, Calendar, Layers, Zap, Clock } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import { searchTasks } from '../api';
@@ -38,7 +39,7 @@ function getStatusLabel(cellValues: SearchTaskResult['cellValues']): string | un
 }
 
 export function GlobalSearchModal({ onClose, onNavigate }: Props) {
-  const { boards } = useBoardStore();
+  const { boards } = useBoardStore(useShallow(({ boards }) => ({ boards })));
 
   const [query,       setQuery]       = useState('');
   const [results,     setResults]     = useState<SearchTaskResult[]>([]);

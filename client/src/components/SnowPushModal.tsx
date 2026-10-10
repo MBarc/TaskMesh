@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Sparkles } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -42,7 +43,7 @@ function calculatePriority(urgency: string, impact: string): string {
 }
 
 export function SnowPushModal() {
-  const { snowPushModal, closeSnowPushModal } = useBoardStore();
+  const { snowPushModal, closeSnowPushModal } = useBoardStore(useShallow(({ snowPushModal, closeSnowPushModal }) => ({ snowPushModal, closeSnowPushModal })));
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Form fields

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2, X, Search, Sparkles } from 'lucide-react';
 import { useBoardStore } from '../stores/boardStore';
 import * as api from '../api';
@@ -27,7 +28,7 @@ const ADO_TYPE_COLORS: Record<string, string> = {
 };
 
 export function AdoPushModal() {
-  const { adoPushModal, closeAdoPushModal } = useBoardStore();
+  const { adoPushModal, closeAdoPushModal } = useBoardStore(useShallow(({ adoPushModal, closeAdoPushModal }) => ({ adoPushModal, closeAdoPushModal })));
   const [workItemType, setWorkItemType] = useState<AdoWorkItemType | ''>('');
   const [parentSearch, setParentSearch] = useState('');
   const [parentResults, setParentResults] = useState<AdoWorkItemSearchResult[]>([]);
