@@ -185,6 +185,10 @@ if ($dataDir)    { $installArgs += "/DATADIR=`"$dataDir`"" }
 $autoUpdateVal = if ($regProps.AutoUpdateEnabled -eq '0') { '0' } else { '1' }
 $installArgs += "/AUTOUPDATE=$autoUpdateVal"
 
+# Likewise keep the telemetry choice made at install time (defaults to on otherwise).
+$telemetryVal = if ($regProps.TelemetryEnabled -eq '0') { '0' } else { '1' }
+$installArgs += "/TELEMETRY=$telemetryVal"
+
 # Preserve the originally installed components so the silent update never
 # installs components (e.g. AI/Ollama) that the user did not select at setup.
 # Falls back to "core" if the registry key is absent (older installs).
