@@ -191,6 +191,8 @@ router.post('/save-document', async (req, res) => {
           select: { name: true, folderId: true, boardId: true },
         });
         const oldFsPath = before ? await getFileFsPath(before) : null;
+        // Validate the destination before touching the database
+        const newFsPath = before ? await getFileFsPath({ ...before, name: baseName }) : null;
 
         const updated = await prisma.documentationFile.update({
           where: { id: existingDocFileId },
@@ -198,19 +200,18 @@ router.post('/save-document', async (req, res) => {
         });
         docFileId = updated.id;
 
-        const newFsPath = await getFileFsPath({ name: updated.name, folderId: updated.folderId, boardId: updated.boardId });
-        fsTry('save-document update', () => {
+        if (newFsPath) fsTry('save-document update', () => {
           fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
           if (oldFsPath && oldFsPath !== newFsPath && fs.existsSync(oldFsPath)) fs.renameSync(oldFsPath, newFsPath);
           fs.writeFileSync(newFsPath, content, 'utf-8');
         });
       } else {
         // Legacy cell (filePath format) — create a new wiki file
+        const fsPath = await getFileFsPath({ name: baseName, folderId: null, boardId }); // validate first
         const file = await prisma.documentationFile.create({
           data: { boardId, name: baseName, content, folderId: null },
         });
         docFileId = file.id;
-        const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
         fsTry('save-document create (legacy upgrade)', () => {
           fs.mkdirSync(path.dirname(fsPath), { recursive: true });
           fs.writeFileSync(fsPath, content, 'utf-8');
@@ -218,11 +219,11 @@ router.post('/save-document', async (req, res) => {
       }
     } else {
       // No existing cell — create a new wiki file
+      const fsPath = await getFileFsPath({ name: baseName, folderId: null, boardId }); // validate first
       const file = await prisma.documentationFile.create({
         data: { boardId, name: baseName, content, folderId: null },
       });
       docFileId = file.id;
-      const fsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
       fsTry('save-document create', () => {
         fs.mkdirSync(path.dirname(fsPath), { recursive: true });
         fs.writeFileSync(fsPath, content, 'utf-8');
@@ -465,6 +466,8 @@ router.put('/wiki/folders/:id', async (req, res) => {
 
     const before = await prisma.documentationFolder.findUnique({ where: { id }, select: { name: true, parentFolderId: true, boardId: true } });
     const oldFsPath = before ? await getFolderFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFolderFsPath({ ...before, name: name.trim() }) : null;
 
     const folder = await prisma.documentationFolder.update({
       where: { id },
@@ -483,8 +486,7 @@ router.put('/wiki/folders/:id', async (req, res) => {
       },
     });
 
-    const newFsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: folder.boardId });
-    fsTry('rename folder', () => {
+    if (newFsPath) fsTry('rename folder', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.renameSync(oldFsPath, newFsPath);
       } else {
@@ -538,6 +540,8 @@ router.put('/wiki/folders/:id/move', async (req, res) => {
 
     const before = await prisma.documentationFolder.findUnique({ where: { id }, select: { name: true, parentFolderId: true, boardId: true } });
     const oldFsPath = before ? await getFolderFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFolderFsPath({ ...before, parentFolderId: parentFolderId || null }) : null;
 
     const folder = await prisma.documentationFolder.update({
       where: { id },
@@ -556,8 +560,7 @@ router.put('/wiki/folders/:id/move', async (req, res) => {
       },
     });
 
-    const newFsPath = await getFolderFsPath({ name: folder.name, parentFolderId: folder.parentFolderId, boardId: folder.boardId });
-    fsTry('move folder', () => {
+    if (newFsPath) fsTry('move folder', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
         fs.renameSync(oldFsPath, newFsPath);
@@ -633,6 +636,8 @@ router.put('/wiki/files/:id', async (req, res) => {
 
     const before = await prisma.documentationFile.findUnique({ where: { id }, select: { name: true, folderId: true, boardId: true } });
     const oldFsPath = before ? await getFileFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFileFsPath({ ...before, ...(name !== undefined && { name: name.trim() }) }) : null;
 
     const data: { name?: string; content?: string } = {};
     if (name !== undefined) data.name = name.trim();
@@ -640,8 +645,7 @@ router.put('/wiki/files/:id', async (req, res) => {
 
     const file = await prisma.documentationFile.update({ where: { id }, data });
 
-    const newFsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
-    fsTry('update file', () => {
+    if (newFsPath) fsTry('update file', () => {
       fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
       if (name !== undefined && oldFsPath && oldFsPath !== newFsPath && fs.existsSync(oldFsPath)) {
         fs.renameSync(oldFsPath, newFsPath);
@@ -681,14 +685,15 @@ router.put('/wiki/files/:id/move', async (req, res) => {
 
     const before = await prisma.documentationFile.findUnique({ where: { id }, select: { name: true, folderId: true, boardId: true } });
     const oldFsPath = before ? await getFileFsPath(before) : null;
+    // Validate the destination before touching the database
+    const newFsPath = before ? await getFileFsPath({ ...before, folderId: folderId || null }) : null;
 
     const file = await prisma.documentationFile.update({
       where: { id },
       data: { folderId: folderId || null },
     });
 
-    const newFsPath = await getFileFsPath({ name: file.name, folderId: file.folderId, boardId: file.boardId });
-    fsTry('move file', () => {
+    if (newFsPath) fsTry('move file', () => {
       if (oldFsPath && fs.existsSync(oldFsPath)) {
         fs.mkdirSync(path.dirname(newFsPath), { recursive: true });
         fs.renameSync(oldFsPath, newFsPath);
