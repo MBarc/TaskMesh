@@ -157,6 +157,23 @@ if (-not $ollamaExe) {
     }
     Write-Host "Ollama installed." -ForegroundColor Green
 
+    # Ollama's installer launches its desktop app (tray icon + chat window) and adds it
+    # to the user's Startup folder. TaskMesh runs Ollama as its own hidden service
+    # (below), so close the app, stop the server it spawned (it would hold port 11434),
+    # and keep it from opening at every login. The app can appear a moment after the
+    # installer exits, so wait for it briefly.
+    for ($i = 0; $i -lt 15 -and -not (Get-Process -Name "ollama app" -ErrorAction SilentlyContinue); $i++) {
+        Start-Sleep -Seconds 1
+    }
+    Get-Process -Name "ollama app", "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    foreach ($lnk in @(
+        (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\Ollama.lnk"),
+        (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\StartUp\Ollama.lnk")
+    )) {
+        Remove-Item $lnk -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host "Closed the Ollama desktop app and removed it from Startup (TaskMesh runs Ollama as a service)."
+
     # Record that TaskMesh installed Ollama so the uninstaller can offer to remove it.
     $tmReg = "HKLM:\Software\TaskMesh"
     if (-not (Test-Path $tmReg)) { New-Item -Force -Path $tmReg | Out-Null }
