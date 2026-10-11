@@ -18,6 +18,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Prisma prints an "update available" box to stderr when a newer version exists,
+# which PowerShell treats as a terminating error under Stop. Silence it.
+$env:PRISMA_HIDE_UPDATE_MESSAGE = "1"
 if ($IsccPath -eq "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -and -not (Test-Path $IsccPath)) {
     $userIscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     if (Test-Path $userIscc) { $IsccPath = $userIscc }
