@@ -18,6 +18,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Prisma prints an "update available" box to stderr when a newer version exists,
+# which PowerShell treats as a terminating error under Stop. Silence it.
+$env:PRISMA_HIDE_UPDATE_MESSAGE = "1"
 if ($IsccPath -eq "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -and -not (Test-Path $IsccPath)) {
     $userIscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     if (Test-Path $userIscc) { $IsccPath = $userIscc }
@@ -333,6 +336,34 @@ if (-not (Test-Path (Join-Path $SharedDir "LICENSE.txt"))) {
     Set-Content (Join-Path $SharedDir "LICENSE.txt") "TaskMesh - All rights reserved.`nSee https://taskmesh.co for license terms."
     Write-Host "Created placeholder shared\LICENSE.txt" -ForegroundColor Yellow
 }
+
+# The license page only renders formatting from RTF (a .txt shows raw "##"), so
+# convert the markdown license to shared\LICENSE.rtf: first line = title, "## " =
+# bold headings, wrapped lines joined into paragraphs. LICENSE.txt stays the source.
+function ConvertTo-LicenseRtf([string]$MarkdownPath, [string]$RtfPath) {
+    $esc = {
+        param($s)
+        $s = $s.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
+        -join ($s.ToCharArray() | ForEach-Object { if ([int]$_ -gt 127) { "\u$([int]$_)?" } else { $_ } })
+    }
+    $out = New-Object System.Text.StringBuilder
+    [void]$out.Append('{\rtf1\ansi\deff0{\fonttbl{\f0\fswiss Segoe UI;}}\f0\fs18 ')
+    $para = @()
+    $flush = { if ($para.Count) { [void]$out.Append((& $esc ($para -join ' ')) + '\par\par ') }; $para = @() }  # dot-sourced: runs in this scope
+    $lines = Get-Content $MarkdownPath -Encoding UTF8
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i].Trim()
+        if ($i -eq 0 -and $line) { [void]$out.Append('{\b\fs24 ' + (& $esc $line) + '}\par\par '); continue }
+        if ($line -match '^#{1,6}\s+(.*)$') { . $flush; [void]$out.Append('{\b\fs20 ' + (& $esc $Matches[1]) + '}\par '); continue }
+        if ($line -eq '') { . $flush; continue }
+        $para += $line
+    }
+    . $flush
+    [void]$out.Append('}')
+    [System.IO.File]::WriteAllText($RtfPath, $out.ToString(), [System.Text.Encoding]::ASCII)
+}
+ConvertTo-LicenseRtf (Join-Path $SharedDir "LICENSE.txt") (Join-Path $SharedDir "LICENSE.rtf")
+Write-Host "Generated shared\LICENSE.rtf from LICENSE.txt" -ForegroundColor Green
 # manifest.schema.json and example-connector live in server/src/connectors/ —
 # referenced directly from taskmesh-setup.iss; no placeholder needed here.
 

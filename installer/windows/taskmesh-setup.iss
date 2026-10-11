@@ -23,7 +23,8 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-LicenseFile=..\shared\LICENSE.txt
+; RTF so the license page shows formatting; generated from LICENSE.txt by build.ps1
+LicenseFile=..\shared\LICENSE.rtf
 OutputDir=Output
 OutputBaseFilename=TaskMesh-Setup
 SetupIconFile=assets\taskmesh.ico
