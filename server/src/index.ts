@@ -180,8 +180,8 @@ async function start() {
 
   await initializeTelemetryFromInstaller();
 
-  // Health check
-  app.get('/health', (req, res) => {
+  // Health check. /api/health is what the UI polls, since Docker's nginx only proxies /api/.
+  app.get(['/health', '/api/health'], (req, res) => {
     res.json({ status: 'ok' });
   });
 

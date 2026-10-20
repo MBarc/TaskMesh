@@ -23,6 +23,7 @@ import { UpdateCountdownModal } from './components/UpdateCountdownModal';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { ServerDownBanner } from './components/ServerDownBanner';
 import { getSettingsComponent, getConnectorIcon } from './components/connectors/registry';
 import { getConnectorManifests } from './api/connectors';
 import type { ConnectorManifest } from './types/connector';
@@ -433,6 +434,7 @@ function App() {
   return (
     <div className="min-h-screen bg-surface">
       <ReleaseNotesModal />
+      <ServerDownBanner />
       {/* Header */}
       <header className="bg-surface-secondary border-b border-border">
         <div className="max-w-7xl mx-auto px-4 py-4">
